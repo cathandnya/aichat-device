@@ -43,13 +43,30 @@
 
 ## 推奨
 
+> **この推奨は古い。決定は「作らない」。**
+> **家にある Echo Spot 初代（2017・`rook`・VN94DQ）に LineageOS を入れる**
+> （[06](06-device-implementation.md)）。
+>
+> 要求が下がり続けた結果、こうなった。
+>
+> 1. **推論をデバイスに載せない**と決めた → Pi 5 の性能も 7 インチも要らない
+> 2. **文字を出さない**と決めた → 画面は顔が映れば足りる
+> 3. 残った要求は「丸い画面・マイク・スピーカー・WiFi・常時給電」だけ
+> 4. **それを全部持った箱が家にあった**
+>
+> 自作案（Pi Zero 2 W + 1.28インチ丸型 SPI 液晶 + USB 会議用スピーカーフォン、
+> 約13,000円）は、**Spot でマイクが動かなかったときの退路**として
+> [06](06-device-implementation.md) に残してある。
+>
+> 以下は当時の検討として残す。
+
 **Raspberry Pi 5（8GB）+ Raspberry Pi Touch Display 2（7 インチ）**
 
 | 部品 | 選定 | 理由 |
 |---|---|---|
 | SBC | Raspberry Pi 5 8GB | VOICEVOX をローカルで動かす余地を残すため 8GB |
 | 画面 | Raspberry Pi Touch Display 2（7", 720×1280, 静電タッチ） | 公式なので OS 側の対応が安定。DSI 接続で USB を塞がない |
-| マイク | USB 会議マイク（Anker PowerConf 等）または Seeed ReSpeaker 2-Mics Pi HAT | 下の注記を参照 |
+| マイク | USB 会議マイク（Anker PowerConf 等）または Seeed ReSpeaker 2-Mics Pi HAT | 下の注記を参照。**→ 会議用に決まった**（[06](06-device-implementation.md)） |
 | スピーカー | USB 会議マイク内蔵、または小型アンプ内蔵スピーカー | 会議マイクならマイク・スピーカーがひとまとめ |
 | カメラ | Camera Module 3（任意） | 画像ブロックをそのまま送れる |
 | ストレージ | microSD 32GB | 読み書きは少ない |
