@@ -326,14 +326,17 @@ secure context の制約が消える）。ただし**音声を流す経路は保
 
 **移す先が Mac 側になったので、TypeScript のまま使えるものが増えた。**
 
-| いまの実装 | 移す先 | 備考 |
+**移し終わったものは、ブラウザ側から消した。**「ボタンを押して話す」経路を
+残したままにすると同じ処理が2箇所に居座り、実機で困ることにも気づけない。
+
+| いまの実装 | 移す先 | 状況 |
 |---|---|---|
-| `web/src/speech/sentences.ts` | **Mac のサーバー（TS のまま）** | 文末でだけ切る規則をそのまま |
-| `web/src/speech/speaker.ts` | **Mac のサーバー（TS のまま）** | 合成と再生を分けて先読みする構造は必須 |
-| `web/src/main.ts` の状態機械 | **Mac のサーバー（TS のまま）** | 5状態の遷移 |
-| `web/src/api/client.ts` | サーバー内部の呼び出しになる | SSE の解析は不要になる |
-| `web/src/audio/endpoint.ts` | Mac 側（TS） | **プリロールは不要**。判定だけ残す |
-| `web/src/audio/wav.ts` | Mac 側（TS） | |
+| `web/src/speech/sentences.ts` | Mac のサーバー（TS のまま） | **済み**（`server/src/speech/sentences.ts`）。ブラウザ側は削除 |
+| `web/src/speech/speaker.ts` | Mac のサーバー（TS のまま） | **済み**（`server/src/speech/queue.ts`）。ブラウザ側は削除 |
+| `web/src/main.ts` の状態機械 | Mac のサーバー（TS のまま） | **済み**（`server/src/ws/session.ts`）。6状態の遷移 |
+| `web/src/api/client.ts` | サーバー内部の呼び出しになる | **済み**。SSE の解析はブラウザから消えた |
+| `web/src/audio/endpoint.ts` | Mac 側（TS） | **済み**。プリロールは持たず、判定だけ残した |
+| `web/src/audio/wav.ts` | Mac 側（TS） | **済み**（`server/src/audio/format.ts`）。ブラウザ側は録音に残る |
 | `web/src/styles.css` | デバイス側の描画 | 配色（常に暗い）と文字の大きさは踏襲 |
 
 **デバイス側に移植するのは描画だけ。** 判断のロジックは全部 Mac に残る。
