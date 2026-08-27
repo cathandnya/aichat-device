@@ -25,6 +25,9 @@ export function mountStatic(app: Hono): boolean {
   const root = "../web/dist";
 
   app.use("/*", serveStatic({ root }));
+  // 拡張子の無い URL でも開けるようにする（Vite の dev サーバーにも
+  // 同じ対応がある）。**index.html への総取りより先に置く。**
+  app.get("/history", serveStatic({ root, path: "history.html" }));
   // 直接 URL を叩かれても画面を出す。
   app.get("*", serveStatic({ root, path: "index.html" }));
 

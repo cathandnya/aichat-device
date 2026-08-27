@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import basicSsl from "@vitejs/plugin-basic-ssl";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 
 /**
  * 開発サーバーの決めごと。
@@ -27,6 +27,25 @@ import { defineConfig } from "vite";
 // 外に出すかどうか。既定は出さない。
 const exposed = process.env.VITE_EXPOSE === "1";
 
+/**
+ * 拡張子の無い URL でも画面を出す。
+ *
+ * 履歴は `/history` で開けるようにしたい（家族に伝えるのは短いほうがよい）。
+ * 本番側にも同じ対応がある（device/server/src/static.ts）。
+ */
+function cleanUrls(): Plugin {
+  return {
+    name: "aichat-clean-urls",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const [path, query] = (req.url ?? "").split("?");
+        if (path === "/history") req.url = `/history.html${query ? `?${query}` : ""}`;
+        next();
+      });
+    },
+  };
+}
+
 /** ローカルサーバー（127.0.0.1）への中継。SSE を途中でまとめさせない。 */
 function proxyToServer() {
   return {
@@ -42,7 +61,7 @@ function proxyToServer() {
 
 export default defineConfig({
   base: "./",
-  plugins: exposed ? [basicSsl()] : [],
+  plugins: exposed ? [cleanUrls(), basicSsl()] : [cleanUrls()],
   server: {
     host: exposed ? "0.0.0.0" : "127.0.0.1",
     // 既定の 5173 や 8080 は他のものと当たりやすいので、静かな帯に置く。
@@ -71,9 +90,11 @@ export default defineConfig({
     target: "es2022",
     outDir: "dist",
     rollupOptions: {
-      // 画面は2つ。本番（サーバーが dist を配る）でも /wake.html で開ける。
+      // 画面は3つ。チャット・履歴・ウェイクワードの試験。
+      // 本番（サーバーが dist を配る）でも同じ URL で開ける。
       input: {
         main: resolve(__dirname, "index.html"),
+        history: resolve(__dirname, "history.html"),
         wake: resolve(__dirname, "wake.html"),
       },
     },

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>チャットの履歴</title>
+    <link rel="stylesheet" href="./src/history.css" />
+  </head>
+  <body class="history">
+    <!--
+      読み返すための画面。**ここでは話せない。**
+      チャットの画面（index.html）を実機に近づけるために分けた。
+      手元のブラウザで見る前提なので、文字は据え置き画面より小さくてよい。
+    -->
+    <header class="head">
+      <a class="back" href="/">← チャットに戻る</a>
+      <h1>履歴</h1>
+      <div id="count" class="count"></div>
+    </header>
+
+    <main class="panes">
+      <ul id="list" class="list"></ul>
+      <section id="detail" class="detail">
+        <p class="empty">左から選んでください。</p>
+      </section>
+    </main>
+
+    <script type="module" src="./src/history.ts"></script>
+  </body>
+</html>

@@ -12,15 +12,11 @@
  */
 
 import {
-  deleteChat,
   endChat,
-  fetchChat,
-  fetchChats,
   fetchConfig,
   fetchHealth,
   streamChat,
   transcribe,
-  type ChatSummary,
   type Source,
 } from "./api/client.ts";
 import { DeviceSocket, type DeviceEvent } from "./api/device.ts";
@@ -61,11 +57,7 @@ const el = {
   badge: byId("badge"),
   model: byId("model"),
   talk: byId("talk") as HTMLButtonElement,
-  app: byId("app"),
-  chats: byId("chats"),
-  chatList: byId("chat-list"),
   newChat: byId("new-chat") as HTMLButtonElement,
-  toggleChats: byId("toggle-chats") as HTMLButtonElement,
   transcript: byId("transcript"),
   mic: byId("mic") as HTMLButtonElement,
 };
@@ -108,10 +100,6 @@ async function start(): Promise<void> {
   el.talk.addEventListener("click", onTalk);
   el.mic.addEventListener("click", () => void toggleMic());
   el.newChat.addEventListener("click", () => void onNewChat());
-  el.toggleChats.addEventListener("click", () => {
-    const hidden = el.app.dataset.chats === "hidden";
-    el.app.dataset.chats = hidden ? "shown" : "hidden";
-  });
   document.addEventListener("keydown", (event) => {
     if (event.code !== "Space" || event.repeat) return;
     event.preventDefault();
@@ -133,7 +121,6 @@ async function start(): Promise<void> {
   };
 
   setMicLabel();
-  await refreshChats();
 
   const config = await fetchConfig();
   if (config) {
@@ -234,7 +221,6 @@ function onDeviceEvent(event: DeviceEvent): void {
         liveAnswer = "";
         el.question.hidden = true;
         el.answer.textContent = "";
-        void refreshChats();
       }
       setState(event.state);
       el.status.textContent = event.status;
@@ -254,12 +240,12 @@ function onDeviceEvent(event: DeviceEvent): void {
       showSources(event.sources);
       break;
     case "chat":
+      // 別のチャットに移ったときだけ画面を空にする。**継いだときは残す。**
       if (chatId !== event.chatId) {
         chatId = event.chatId;
         reset();
         el.transcript.replaceChildren();
       }
-      void refreshChats();
       break;
     case "audio":
       player.enqueue(event.wav);
@@ -385,10 +371,7 @@ async function answer(question: string, controller: AbortController): Promise<vo
       switch (event.type) {
         case "chat":
           // サーバーが新しく作ったチャットに入ることがある（上限で仕切り直し）。
-          if (chatId !== event.chatId) {
-            chatId = event.chatId;
-            void refreshChats();
-          }
+          chatId = event.chatId;
           break;
         case "delta": {
           if (!text) {
@@ -433,10 +416,7 @@ async function answer(question: string, controller: AbortController): Promise<vo
   for (const sentence of splitter.flush()) speech?.enqueue(sentence);
 
   // いままでの往復を上に積む。次の質問のときに文脈が見えるように。
-  if (text) {
-    appendTranscript(question, text);
-    void refreshChats();
-  }
+  if (text) appendTranscript(question, text);
 
   await speech?.drain();
   if (controller.signal.aborted) return;
@@ -444,83 +424,6 @@ async function answer(question: string, controller: AbortController): Promise<vo
   setState("idle");
   el.status.textContent = "続けて話しかけられます";
   session = null;
-}
-
-// --- チャットの履歴 ---
-
-/** 一覧を取り直して描く。 */
-async function refreshChats(): Promise<void> {
-  renderChats(await fetchChats());
-}
-
-/**
- * 一覧を描く。
- *
- * `showSources` と同じ流儀で、テンプレート文字列で HTML を組まずに
- * `createElement` + `textContent` で作る（題名に何が入っていても安全）。
- */
-function renderChats(items: ChatSummary[]): void {
-  const list = document.createElement("ul");
-
-  for (const chat of items) {
-    const li = document.createElement("li");
-    if (chat.id === chatId) li.dataset.current = "1";
-
-    const open = document.createElement("button");
-    open.type = "button";
-    open.className = "open";
-    // デバイスで話したものが分かるようにしておく。
-    open.textContent = `${chat.origin === "device" ? "🎙 " : ""}${chat.title}`;
-    open.title = `${chat.title}（${chat.turns} 発言）`;
-    open.addEventListener("click", () => void openChat(chat.id));
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "remove";
-    remove.textContent = "×";
-    remove.title = "消す";
-    remove.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void removeChat(chat.id);
-    });
-
-    li.append(open, remove);
-    list.append(li);
-  }
-
-  el.chatList.replaceChildren(...list.children);
-}
-
-/** 過去のチャットを開く。**続きを話せる**（読むだけにしない）。 */
-async function openChat(id: string): Promise<void> {
-  stop();
-
-  const chat = await fetchChat(id);
-  if (!chat) return;
-
-  chatId = id;
-  reset();
-  el.transcript.replaceChildren();
-
-  for (let i = 0; i < chat.turns.length; i += 2) {
-    const question = chat.turns[i];
-    const answer = chat.turns[i + 1];
-    if (question?.role === "user") {
-      appendTranscript(question.content, answer?.content ?? "");
-    }
-  }
-  el.status.textContent = "続けて話しかけられます";
-  void refreshChats();
-}
-
-async function removeChat(id: string): Promise<void> {
-  if (!(await deleteChat(id))) return;
-  if (chatId === id) {
-    chatId = null;
-    reset();
-    el.transcript.replaceChildren();
-  }
-  void refreshChats();
 }
 
 /** 仕切り直す。いま開いているチャットは閉じる。 */
@@ -532,7 +435,6 @@ async function onNewChat(): Promise<void> {
   reset();
   el.transcript.replaceChildren();
   el.status.textContent = "話しかけてください";
-  void refreshChats();
 }
 
 /** 済んだ往復を上に積む。 */
