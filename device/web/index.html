@@ -6,38 +6,43 @@
     <title>AIChat Device</title>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
-  <body>
+  <body data-state="idle" data-hearing="0">
+    <!-- 画面の縁。**声を受け付けている間だけ光る。**
+         据え置きの機械は離れた場所から見るので、文字の色が変わるだけでは
+         気づけない。据え置きの機械が光の帯で示しているのと同じ役割。 -->
+    <div id="lamp" class="lamp" aria-hidden="true"></div>
+
     <!-- 据え置きの画面なので、上から「状態」「本文」「操作」の順に置く。
          離れて見るものなので文字は大きめ、配色は常に暗い（夜のテーブルで
          白背景は眩しい）。
 
          **チャットだけを置く。** 実機（Pi + 液晶）に近づけるため、履歴は
-         この画面に出さない。読み返すのは別画面（/history）。 -->
+         この画面に出さない。読み返すのは別画面（/history）。
+
+         **ボタンは実機に無いものを置かない。** 「話す」も「新しい会話」も
+         外した。話しかけるのはウェイクワード、会話の区切りは間があいたか。
+         残るのはマイクの入り切りだけで、これも実機には無い。 -->
     <main id="app">
       <header class="bar">
         <div id="clock" class="clock">--:--</div>
         <div id="badge" class="badge" hidden></div>
-        <nav class="actions">
-          <a class="link" href="/history">履歴</a>
-          <!-- 10 分待たずに仕切り直す唯一の手段。実機には無い。 -->
-          <button id="new-chat" class="pill" type="button">新しい会話</button>
-          <!-- ON にすると常時待ち受けになり、ウェイクワードでチャットが始まる。 -->
-          <button id="mic" class="pill mic" type="button" data-on="0">マイク OFF</button>
-        </nav>
+        <!-- 読み返すための出口。話すこととは役割が違うので、隅に離して置く。 -->
+        <a class="link" href="/history">履歴</a>
       </header>
 
       <section id="stage" class="stage" data-state="idle">
-        <div id="status" class="status">話しかけてください</div>
-        <div id="transcript" class="transcript"></div>
+        <div id="status" class="status">マイクを ON にすると話しかけられます</div>
+        <!-- 声の大きさ。**届いていることの証**なので、聞いている間は大きく出す。 -->
         <div id="level" class="level"><span id="level-bar"></span></div>
+        <div id="transcript" class="transcript"></div>
         <p id="question" class="question" hidden></p>
         <p id="answer" class="answer"></p>
         <ul id="sources" class="sources" hidden></ul>
       </section>
 
+      <!-- 唯一の操作。下の中央に置く。 -->
       <footer class="bar bottom">
-        <button id="talk" class="talk" type="button">話す</button>
-        <div id="model" class="model"></div>
+        <button id="mic" class="mic" type="button" data-on="0">マイク OFF</button>
       </footer>
     </main>
 

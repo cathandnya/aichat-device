@@ -15,6 +15,8 @@ export class AudioPlayer {
   private queue: Promise<void> = Promise.resolve();
   /** 「やめる」のたびに増やす。古い世代の音は鳴らさない。 */
   private generation = 0;
+  /** 復号済みの効果音。鳴らすたびに取りに行かない。 */
+  private readonly chimes: Record<string, Promise<AudioBuffer>> = {};
 
   /**
    * 音を出せる状態にしておく。**画面を触った瞬間に呼ぶこと。**
@@ -39,6 +41,28 @@ export class AudioPlayer {
         // 黙って捨てない。握り潰すと「音が出ない」原因を追えなくなる。
         console.error("読み上げに失敗しました:", error);
       });
+  }
+
+  /**
+   * 短い効果音を鳴らす。**読み上げの列には積まない。**
+   *
+   * ウェイクワードに気づいたことをすぐ返すためのものなので、
+   * 前の読み上げが終わるのを待っていては意味がない。
+   * 復号したものは取っておく（2回目からは待たずに鳴る）。
+   */
+  async chime(url: string): Promise<void> {
+    const context = this.ensureContext();
+    if (context.state === "suspended") await context.resume().catch(() => {});
+
+    this.chimes[url] ??= fetch(url)
+      .then((response) => response.arrayBuffer())
+      .then((bytes) => context.decodeAudioData(bytes));
+
+    const buffer = await this.chimes[url];
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    source.start();
   }
 
   /** すべてやめる。 */

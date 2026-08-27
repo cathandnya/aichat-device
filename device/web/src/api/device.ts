@@ -28,6 +28,8 @@ export type DeviceEvent =
   | { type: "answer"; text: string }
   | { type: "sources"; sources: Source[] }
   | { type: "chat"; chatId: string; title: string }
+  /** ウェイクワードで起こされた。効果音を鳴らす合図。 */
+  | { type: "wake" }
   | { type: "error"; message: string }
   /** 読み上げの音声（WAV）。 */
   | { type: "audio"; wav: ArrayBuffer }

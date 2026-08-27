@@ -244,6 +244,9 @@ export class Session {
     // 継いだ会話だからと立てたままにすると、呼んで黙っていた人に
     // 返事もせず窓も開かないまま待機に戻ってしまう。
     this.acknowledged = false;
+    // **気づいたことを先に返す。** 聞き取りが始まるまで無反応だと、
+    // 呼んだ人はもう一度呼んでしまう。
+    this.io.send({ type: "wake" });
     this.io.send({ type: "chat", chatId: chat.id, title: chat.title });
 
     this.beginListening();

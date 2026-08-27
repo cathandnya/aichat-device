@@ -12,6 +12,8 @@
   --accent: #5aa9ff;
   --danger: #ff6b6b;
   --card: #171a22;
+  /* 声を受け付けている印。緑は「どうぞ」に読める。 */
+  --hear: #6ee7a8;
 
   color-scheme: dark;
 }
@@ -50,13 +52,7 @@ body {
   gap: 1rem;
 }
 
-/* 時計の右に並べる小さな操作。実機には無いものなので控えめに。 */
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
+/* 読み返すための出口。右上に小さく置く。実機には無い。 */
 .link {
   color: var(--dim);
   font-size: 0.85rem;
@@ -67,25 +63,27 @@ body {
   color: var(--fg);
 }
 
-.pill {
+/* 唯一の操作なので、下の中央に大きめに置く。 */
+.mic {
   border: 1px solid #2c3140;
   background: none;
   color: var(--dim);
-  border-radius: 10px;
-  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  padding: 0.6rem 1.8rem;
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 1rem;
   white-space: nowrap;
   cursor: pointer;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
 }
-.pill:active {
+.mic:active {
   transform: scale(0.99);
 }
 
 .mic[data-on="1"] {
   border-color: #2f7d55;
   background: #12301f;
-  color: #6ee7a8;
+  color: var(--hear);
 }
 
 /* いままでの往復。いまの質問と回答の上に出す。 */
@@ -143,8 +141,15 @@ body {
   color: var(--dim);
   font-size: 1rem;
   letter-spacing: 0.08em;
+  transition: color 0.2s, font-size 0.2s;
 }
 
+/* **声を受け付けている間は大きく出す。** 据え置きの機械は離れて見るので、
+   色が少し変わるだけでは「いま話していいのか」が分からない。 */
+body[data-hearing="1"] .status {
+  font-size: 2rem;
+  letter-spacing: 0.05em;
+}
 .stage[data-state="listening"] .status {
   color: var(--accent);
 }
@@ -153,27 +158,84 @@ body {
 }
 /* 追い質問の窓。黙って聞いている状態を作らない。 */
 .stage[data-state="following"] .status {
-  color: #6ee7a8;
+  color: var(--hear);
 }
 
-/* 音量の目安。聞こえているかが一目で分かる。 */
+/**
+ * 画面の縁の光。**声を受け付けている間だけ光る。**
+ *
+ * 状態の文字だけでは、離れた場所から「聞いているのか、固まったのか」が
+ * 分からなかった。据え置きの機械が光の帯で示しているのと同じ役割。
+ */
+.lamp {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  border: 5px solid transparent;
+  transition: border-color 0.2s linear, box-shadow 0.2s linear;
+}
+body[data-state="listening"] .lamp {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 3rem -1rem var(--accent);
+}
+body[data-state="following"] .lamp {
+  border-color: var(--hear);
+  box-shadow: inset 0 0 3rem -1rem var(--hear);
+}
+body[data-state="thinking"] .lamp {
+  border-color: #3a4152;
+}
+body[data-state="speaking"] .lamp {
+  border-color: #2b4f7a;
+}
+body[data-state="error"] .lamp {
+  border-color: var(--danger);
+}
+
+/* 呼吸させると「生きている」ことが分かる。 */
+body[data-hearing="1"] .lamp {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-hearing="1"] .lamp {
+    animation: none;
+  }
+}
+
+/**
+ * 声の大きさ。**届いていることの証。**
+ *
+ * 「聞いています」と出ていても本当に音が届いているとは限らない
+ * （マイクが別の機器を向いている、権限が落ちている）。ここが動けば届いている。
+ */
 .level {
-  height: 4px;
+  height: 0;
   background: #232733;
-  border-radius: 2px;
+  border-radius: 999px;
   overflow: hidden;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, height 0.2s;
 }
-.stage[data-state="listening"] .level {
+body[data-hearing="1"] .level {
+  height: 0.7rem;
   opacity: 1;
 }
 .level span {
   display: block;
   height: 100%;
   width: 0%;
+  border-radius: 999px;
   background: var(--accent);
   transition: width 0.08s linear;
+}
+body[data-state="following"] .level span {
+  background: var(--hear);
 }
 
 .question {
@@ -228,32 +290,5 @@ body {
 
 .bottom {
   grid-area: bottom;
-  justify-content: space-between;
-}
-
-.talk {
-  flex: 1;
-  min-height: 4rem;
-  border: none;
-  border-radius: 14px;
-  background: var(--accent);
-  color: #06121f;
-  font-size: 1.3rem;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-}
-.talk:active {
-  transform: scale(0.99);
-}
-.talk[data-mode="stop"] {
-  background: var(--danger);
-  color: #200606;
-}
-
-.model {
-  color: var(--dim);
-  font-size: 0.85rem;
-  text-align: right;
-  min-width: 8rem;
+  justify-content: center;
 }
