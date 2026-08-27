@@ -15,6 +15,21 @@
   /* 声を受け付けている印。緑は「どうぞ」に読める。 */
   --hear: #6ee7a8;
 
+  /* 立ち絵の高さ。**画面の半分。** ここが大きさの唯一のつまみで、
+     幅は画像の縦横比と切り出し量から決まる（.character）。
+     切り出した箱の比は 0.58 で実機の画面（800×480）の 0.6 とほぼ同じなので、
+     高さを半分にすると幅もほぼ半分になり、**面積は画面の 1/4 くらい**に収まる。 */
+  --character-h: 50vh;
+  /* 画像の上から何割を見せるか。**口は画像の上から約 30% の位置**にあるので、
+     1/3 ちょうどだと口が下端すれすれになる。目で見て詰める値。 */
+  --character-crop: 0.38;
+  /* 幅は決めるものではなく、絵（1082×1650）を上から --character-crop だけ
+     切り出した箱の比から決まる。 */
+  --character-w: calc(var(--character-h) / ((1650 / 1082) * var(--character-crop)));
+  /* **画面の右へどれだけはみ出させるか。** 1/3 隠すと、絵の左 2/3 だけが
+     残って画面の端から覗いている形になる。口（絵の左から約 45%）は残る。 */
+  --character-bleed: 0.33;
+
   color-scheme: dark;
 }
 
@@ -50,6 +65,9 @@ body {
   height: 100%;
   padding: 1.5rem;
   gap: 1rem;
+  /* **立ち絵（.character は 0）より前。** 文字もボタンも立ち絵に隠れない。 */
+  position: relative;
+  z-index: 1;
 }
 
 /* 読み返すための出口。右上に小さく置く。実機には無い。 */
@@ -63,7 +81,7 @@ body {
   color: var(--fg);
 }
 
-/* 唯一の操作なので、下の中央に大きめに置く。 */
+/* 唯一の操作なので、左下に大きめに置く。 */
 .mic {
   border: 1px solid #2c3140;
   background: none;
@@ -136,6 +154,63 @@ body {
   flex-direction: column;
   gap: 0.8rem;
 }
+
+/**
+ * 立ち絵。**右下に顔だけ出す。**
+ *
+ * 絵は縦長（1082×1650）で、実機の画面は 800×480 の横長。全身を出すと
+ * 顔が小さくなりすぎるので、上から `--character-crop` ぶんだけ切り出す。
+ *
+ * `#app` の外に置いて `position: fixed` にしている。stage の中に入れると
+ * 本文と一緒にスクロールしてしまう。
+ */
+.character {
+  position: fixed;
+  /* **右にはみ出させる。** 画面の外に出たぶんは見えない。
+     `position: fixed` なので、はみ出しても横スクロールにはならない。 */
+  right: calc(var(--character-w) * var(--character-bleed) * -1);
+  bottom: 0.5rem;
+  height: var(--character-h);
+  width: var(--character-w);
+  overflow: hidden;
+  /* 触っても何も起きない。下のボタンを塞がないように。 */
+  pointer-events: none;
+  /**
+   * **最背面。文字もボタンも立ち絵より前に来る。**
+   *
+   * 画面の 1/4 を占めるので、前に出すと長い回答やマイクのボタンに
+   * 重なって読めなくなる。
+   *
+   * 負の値（-1）にはしない。**body に背景色があるので、負にすると
+   * 背景の裏に回って消える危険がある**（いまは html に背景が無く body の
+   * ものが canvas に持ち上がっているので見えているだけで、
+   * html に背景を足した瞬間に消える）。
+   * 代わりに `#app` を 1 に上げて、こちらを 0 に置く。
+   */
+  z-index: 0;
+}
+
+.character img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  /* 自然な比率のまま。上端から入るので、上部だけが残る。 */
+  height: auto;
+  display: block;
+}
+
+/* **口は常に1枚だけ見える。** 土台に口が描かれていないため、
+   どれも表示されていない状態を作ってはいけない。 */
+.character .mouth {
+  opacity: 0;
+}
+.character[data-mouth="0"] .m0,
+.character[data-mouth="1"] .m1,
+.character[data-mouth="2"] .m2 {
+  opacity: 1;
+}
+/* transition は付けない。パラパラは切り替わりが速いほうがそれらしい。 */
 
 .status {
   color: var(--dim);
@@ -288,7 +363,8 @@ body[data-state="following"] .level span {
   color: var(--dim);
 }
 
+/* 左下。**右下は立ち絵の場所**なので、そちらとは反対の隅に置く。 */
 .bottom {
   grid-area: bottom;
-  justify-content: center;
+  justify-content: flex-start;
 }

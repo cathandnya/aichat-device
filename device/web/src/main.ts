@@ -23,6 +23,7 @@ import { fetchHealth, type Source } from "./api/client.ts";
 import { DeviceSocket, type DeviceEvent } from "./api/device.ts";
 import { MicStream, SampleRateError } from "./audio/stream.ts";
 import { MicrophoneError } from "./audio/capture.ts";
+import { Mouth } from "./character/mouth.ts";
 import { AudioPlayer } from "./speech/player.ts";
 
 /** 画面の状態。サーバーの `DeviceState` と同じ並び。 */
@@ -51,6 +52,7 @@ const el = {
   badge: byId("badge"),
   transcript: byId("transcript"),
   mic: byId("mic") as HTMLButtonElement,
+  character: byId("character"),
 };
 
 /**
@@ -67,7 +69,17 @@ let state: State = "idle";
 let micOn = false;
 const socket = new DeviceSocket();
 const mic = new MicStream();
-const player = new AudioPlayer();
+const mouth = new Mouth(el.character);
+/**
+ * **口パクは再生に合わせる。サーバーの `speaking` では合わない。**
+ *
+ * あちらは最初の delta で立って WAV を送り終えた時点で降りるので、
+ * 合成の待ち（1 秒以上）ぶん早く動き出し、まだ鳴っている途中で止まる。
+ */
+const player = new AudioPlayer((speaking) => {
+  if (speaking) mouth.start();
+  else mouth.stop();
+});
 /** いま組み立て中の質問と回答。 */
 let liveQuestion = "";
 let liveAnswer = "";
@@ -77,6 +89,8 @@ void start();
 async function start(): Promise<void> {
   clock();
   setInterval(clock, 10_000);
+
+  showCharacterWhenLoaded();
 
   el.mic.addEventListener("click", () => void toggleMic());
 
@@ -102,6 +116,29 @@ async function start(): Promise<void> {
 
 function busy(): boolean {
   return state !== "idle" && state !== "error";
+}
+
+/**
+ * 立ち絵は、**画像が読めたときだけ出す。**
+ *
+ * `public/character/*.png` は git に入れていない（配布元の規約を確かめて
+ * いないため）ので、clone しただけの状態では1枚も無い。そのまま出すと
+ * 壊れた画像の印が4つ並ぶ。読めなければ隠したままにして、
+ * **立ち絵が無いだけの画面**にする。
+ */
+function showCharacterWhenLoaded(): void {
+  const body = el.character.querySelector<HTMLImageElement>(".body");
+  if (!body) return;
+
+  if (body.complete) {
+    // naturalWidth が 0 なら読み込みに失敗している。
+    if (body.naturalWidth > 0) el.character.hidden = false;
+    return;
+  }
+  body.addEventListener("load", () => {
+    el.character.hidden = false;
+  });
+  // error は拾わない。hidden のままでよい。
 }
 
 // --- マイクの開閉（常時待ち受け） ---

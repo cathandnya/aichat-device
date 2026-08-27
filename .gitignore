@@ -14,3 +14,8 @@ device/server/tmp/
 
 # --- macOS ---
 .DS_Store
+
+# --- 立ち絵 ---
+# ずんだもんの素材。**配布元の規約（再配布の可否）を確かめていないので追跡しない。**
+# 置き方は device/web/public/character/README.md
+device/web/public/character/*.png

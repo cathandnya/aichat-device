@@ -19,6 +19,31 @@ export class AudioPlayer {
   private readonly chimes: Record<string, Promise<AudioBuffer>> = {};
 
   /**
+   * 鳴らしている最中かどうかが変わったときに呼ぶ。
+   *
+   * **口パクの拠り所。** サーバーの `speaking` では代わりにならない。
+   * あちらは「最初の delta が届いた」で立ち、「WAV を送り終えた」で降りるので、
+   * **合成の待ち時間ぶん早く始まり、鳴り終わる前に終わる。**
+   */
+  private readonly onSpeaking: (speaking: boolean) => void;
+
+  /** 積んであって、まだ鳴らし終えていないものの数。0 になったら喋り終わり。 */
+  private pending = 0;
+  private speaking = false;
+
+  /**
+   * いま鳴っている音を、外から止められるようにしておく。
+   *
+   * `cancel()` で `stop()` を呼んでも `onended` を潰してしまうと
+   * `playOne` の待ちがほどけず、**列が二度と動かなくなる**。
+   */
+  private finish: (() => void) | null = null;
+
+  constructor(onSpeaking: (speaking: boolean) => void = () => {}) {
+    this.onSpeaking = onSpeaking;
+  }
+
+  /**
    * 音を出せる状態にしておく。**画面を触った瞬間に呼ぶこと。**
    *
    * ブラウザは利用者が触る前に音を鳴らさない。ウェイクワードで
@@ -35,11 +60,18 @@ export class AudioPlayer {
   /** 届いた WAV を積む。前のものが鳴り終わってから鳴る。 */
   enqueue(wav: ArrayBuffer): void {
     const generation = this.generation;
+    this.pending += 1;
     this.queue = this.queue
       .then(() => this.playOne(wav, generation))
       .catch((error: unknown) => {
         // 黙って捨てない。握り潰すと「音が出ない」原因を追えなくなる。
         console.error("読み上げに失敗しました:", error);
+      })
+      .finally(() => {
+        this.pending -= 1;
+        // **文と文の合間では下ろさない。** 次が積まれている間は
+        // 鳴っていなくても喋っている扱いにする（口が一瞬閉じるのを避ける）。
+        if (this.pending <= 0) this.setSpeaking(false);
       });
   }
 
@@ -69,7 +101,6 @@ export class AudioPlayer {
   cancel(): void {
     this.generation += 1;
     if (this.playing) {
-      this.playing.onended = null;
       try {
         this.playing.stop();
       } catch {
@@ -77,6 +108,10 @@ export class AudioPlayer {
       }
       this.playing = null;
     }
+    // **待ちを自分でほどく。** `onended` を潰して止めると `playOne` の
+    // Promise が永久に解決せず、以降 enqueue しても何も鳴らなくなる。
+    this.finish?.();
+    this.setSpeaking(false);
   }
 
   async close(): Promise<void> {
@@ -102,13 +137,27 @@ export class AudioPlayer {
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.connect(context.destination);
-      source.onended = () => {
+
+      // 二度呼ばれても構わない（resolve は一度しか効かない）。
+      const done = (): void => {
         this.playing = null;
+        this.finish = null;
         resolve();
       };
+      source.onended = done;
+      this.finish = done;
+
       this.playing = source;
       source.start();
+      // **ここが本当の「喋り始め」。** 合成の待ちも送出の遅れも済んでいる。
+      this.setSpeaking(true);
     });
+  }
+
+  private setSpeaking(next: boolean): void {
+    if (this.speaking === next) return;
+    this.speaking = next;
+    this.onSpeaking(next);
   }
 
   /**
