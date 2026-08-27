@@ -8,10 +8,10 @@
  *
  * **なぜ speechSynthesis を本命にしないか。**
  *
- * 1. Pi の Chromium には日本語の音声が入っていない。Chromium は自前の
- *    音声を持たず speech-dispatcher 経由で OS の TTS を呼ぶが、
- *    既定の espeak-ng は漢字を読めない。**Mac には Kyoko が入っている
- *    ので、Mac だけで確かめると気づけない。**
+ * 1. **端末はブラウザではない。** 繋ぐ先は音を鳴らすだけの箱なので、
+ *    そこに speechSynthesis は無い。ブラウザはいまその箱の代役をしている
+ *    だけで、本番の経路はサーバーが作った WAV を鳴らすほう。
+ *    ついでに声も選べない（ずんだもんの代わりにならない）。
  * 2. エコーキャンセルの参照信号に入らない。ブラウザの AEC は「自分が
  *    鳴らした音」を参照にするので、別プロセスが出した音は対象外。
  *    読み上げ中の自分の声をマイクが拾ってループする。
@@ -162,9 +162,9 @@ export class RemoteSpeaker implements Speaker {
 }
 
 /**
- * ブラウザの読み上げ。Mac での確認用。
+ * ブラウザの読み上げ。VOICEVOX を立てていないときの確認用。
  *
- * Pi では日本語の音声が無く、`getVoices()` が空になる。
+ * 日本語の音声が入っていない環境では `getVoices()` が空になるので、
  * `isUsable()` で使えるかどうかを確かめてから使う。
  */
 export class WebSpeechSpeaker implements Speaker {

@@ -1,5 +1,10 @@
 # 06. デバイス側の実装案（音声は Mac に流す）
 
+> **Mac 側は実装済み。** WebSocket `/ws`・ウェイクワードの判定・状態機械・
+> リングバッファは入っている（`server/src/ws/`, `server/src/ai/wake.ts`,
+> `server/src/audio/ring.ts`）。いま端末の役をしているのはブラウザ（`device/web`）。
+> **残っているのはハードの選定と、端末側 150 行を書くこと**（[04](04-roadmap.md) の Phase E）。
+
 ## 前提
 
 **サーバーは Mac に置いたまま。デバイスは端末に徹する。**

@@ -1,11 +1,15 @@
 # device
 
-デバイス側。**Mac でも Raspberry Pi でも同じものが動く。**
+デバイス側。**サーバーは Mac に置く。** 既定の音声認識（macOS の SpeechAnalyzer）が
+Mac でしか動かないうえ、ウェイクワードの判定もここで回すため。
+将来つなぐ小さな箱は端末に徹し、判断は持たない（[../docs/06](../docs/06-device-implementation.md)）。
 
 ```
 device/
-├── server/   ローカルサーバー（Node 22 + Hono）。画面の配信と /api/* の中継
-└── web/      画面（Vite + 素の TypeScript）。マイク・無音検出・読み上げもここ
+├── server/   ローカルサーバー（Node 22 + Hono）。判断はすべてここ
+│              ウェイクワード判定・音声認識・AI・読み上げ・チャットの保存・/admin
+├── web/      画面（Vite + 素の TypeScript）。マイクの取り込みと音の再生
+└── deploy/   常駐の設定（macOS の LaunchAgent）
 ```
 
 ## URL
@@ -58,12 +62,13 @@ cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
 > `stub` なら無害だが、**`live` だと誰でも AI を呼べる（課金はこちら持ち）**。
 > LAN で試すのは `stub` のときだけにする。
 >
-> ローカルサーバー（:8080）自体は外に出ない。Vite が 127.0.0.1 に繋ぐため。
+>
+> ローカルサーバー（:9801）自体は外に出ない。Vite が 127.0.0.1 に繋ぐため。
 >
 > 外に出したくないなら SSH のポート転送を使う（マイクも使える）。
 >
 > ```bash
-> ssh -L 9800:127.0.0.1:9800 pi@aichat.local
+> ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
 > # → 手元で https://aichat.local:9800
 > ```
 
@@ -187,17 +192,31 @@ cd web && npm run dev      # → https://aichat.local:9800
 `/admin`（`https://aichat.local:9800/admin`）から。モデル・システムプロンプト・
 回答の長さ・音声認識モデルを決める。画面側に設定は無い。
 
-127.0.0.1 でしか開けないので、手元の機械から開きたいときは SSH のポート転送。
+127.0.0.1 でしか開けないので、別の機械から開きたいときは SSH のポート転送。
+**転送先はサーバーを動かしている Mac。**
 
 ```bash
-ssh -L 9800:127.0.0.1:9800 pi@raspberrypi.local
+ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
 ```
 
-## Pi へ持っていく
+## 据え置きで動かす
+
+サーバーは Mac に置いたままなので、**持っていくものは無い。**
+Vite を別プロセスで動かすのをやめて、ローカルサーバーに画面ごと配らせる。
 
 ```bash
-cd web && npm run build          # Mac でビルドする（Pi ではビルドしない）
-# device/ を丸ごと Pi にコピーし、server/ で npm ci --omit=dev && npm start
+cd web && npm run build          # web/dist を作る
+cd ../server && npm start        # dist があれば画面もここが配る（プロセスが1つ）
 ```
 
-`web/dist` があれば、ローカルサーバーが画面も配る（プロセスが1つで済む）。
+あわせて **Mac を寝かせない**（`caffeinate -dims`）。寝ると端末が黙る。
+
+### 端末を繋ぐとき
+
+`/ws` にバイナリのフレーム（16kHz mono 16bit LE、80ms）を流し、
+返ってくる JSON とバイナリを画面と音に出すだけ。**判断は一切しない。**
+取り決めは `server/src/ws/protocol.ts`。実装案は
+[../docs/06](../docs/06-device-implementation.md)（Pi Zero 2 W / ESP32-S3 / Pi 4 が候補）。
+
+**`HOST` を LAN に開くことになるので、そのときは `/api/*` に認証が要る。**
+いまは 127.0.0.1 でしか待ち受けないことだけが守りになっている。

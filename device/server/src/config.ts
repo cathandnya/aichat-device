@@ -53,7 +53,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  * `.env` を読んで `process.env` に流し込む。
  *
  * dotenv を入れないのは、必要なのが「KEY=VALUE を読む」だけだから。
- * 依存を1つ増やすと Pi への持ち込みでその分だけ確かめることが増える。
+ * 人が居ない家で無人起動する機械なので、依存は増やさないほうがよい。
  * すでに環境変数にある値は上書きしない（`AICHAT_MODE=live npm start` を効かせるため）。
  */
 export function loadDotEnv(path = join(ROOT, ".env")): void {

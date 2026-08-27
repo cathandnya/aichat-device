@@ -2,7 +2,8 @@
  * Web UI の配信。
  *
  * 開発中は Vite の dev サーバーが配るのでここは通らない。
- * Pi では `device/web/dist` をこのサーバーが配る（プロセスを1つに保つ）。
+ * 据え置きで動かすときは `npm run build` した `device/web/dist` を
+ * このサーバーが配る（プロセスを1つに保つ）。
  */
 
 import { existsSync } from "node:fs";

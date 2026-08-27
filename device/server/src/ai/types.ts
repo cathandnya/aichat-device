@@ -32,9 +32,13 @@ export interface Runtime {
  * 使う AI。管理UIからのみ変更できる。
  *
  * 本家 AIChat には `automatic` / `onDevice`（端末内の Apple Foundation Models）
- * があるが、こちらは Raspberry Pi を最終的な置き場所に想定した据え置きデバイス
- * 専用なので、端末内モデルという概念を持たない。選択肢を残すと
- * 「端末内のみ」に設定した瞬間にデバイスが黙って答えなくなるため、削っている。
+ * があるが、こちらでは削ってある。**AI を呼ぶのはサーバーだけ**で、話しかける
+ * 端末には何も載らないため、「端末内モデル」という概念が成立しない。選択肢を
+ * 残すと「端末内のみ」に設定した瞬間にデバイスが黙って答えなくなる。
+ *
+ * サーバーが Mac に据え置かれた以上、Foundation Models 自体は呼べる位置にある。
+ * 足すとしたら provider ではなく**補助的な用途**（感情の判定など）で、
+ * 回答そのものをこれに任せる話ではない。
  */
 export const CLOUD_PROVIDERS = ["claude", "gemini"] as const;
 export type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
@@ -66,9 +70,10 @@ export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
  * | whisper large-v3-turbo（既定設定） | 2.42秒 | 0件 |
  * | whisper small | 0.86秒 | 6件中1件（オンス→温度） |
  *
- * whisper も残してある。**Raspberry Pi には Apple の音声認識が無い**ので、
- * Phase C ではそちらに切り替わる見込み。クラウドの経路は、どちらの
- * サーバーも立てられないときの逃げ道。
+ * whisper も残してある。**Apple の音声認識は macOS でしか動かない**ので、
+ * サーバーを Mac 以外へ動かすならそちらになる。ただし**いまはサーバーを Mac に
+ * 据え置くと決めている**（docs/04 の「変更の記録」）ので、これは逃げ道であって
+ * 予定ではない。クラウドの経路は、どちらのサーバーも立てられないときの最後の手段。
  *
  * whisper の `-ac 512` は音声文脈を縮める指定。whisper は入力を 30 秒窓に
  * 詰めて処理するので、短い問いかけでも固定費がかかる。窓を縮めると
@@ -87,7 +92,7 @@ export const STT_MODEL_LABELS: Record<SttModel, string> = {
   "apple-speech":
     "macOS の音声認識 — 既定。最速（0.14秒）で音声も外に出ない。ohr が要る。Mac のみ",
   "local-whisper":
-    "ローカル（whisper.cpp）— 音声が外に出ず課金も無い。Pi でも動く。whisper-server が要る",
+    "ローカル（whisper.cpp）— 音声が外に出ず課金も無い。Mac 以外でも動く。whisper-server が要る",
   "gemini-flash-latest":
     "Gemini Flash — チャットと同じ鍵で使えるので鍵が増えない",
   "gpt-4o-transcribe": "OpenAI gpt-4o-transcribe — 書き起こし専用。OPENAI_API_KEY が要る",

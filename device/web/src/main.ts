@@ -147,7 +147,7 @@ async function start(): Promise<void> {
  * 読み上げの実装を選ぶ。
  *
  * VOICEVOX があればそちら。無ければブラウザの読み上げに落とすが、
- * **Pi では日本語の音声が無いので何も聞こえない。**その場合は
+ * **日本語の音声が入っていない環境では何も聞こえない。**その場合は
  * 画面に文字だけが出る（無言で固まるよりはよい）。
  */
 function pickSpeaker(hasVoicevox: boolean): Speaker {

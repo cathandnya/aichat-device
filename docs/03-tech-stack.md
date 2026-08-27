@@ -3,18 +3,28 @@
 ## 全体構成
 
 ```
-[ブラウザ]  Mac: Chrome / Pi: Chromium --kiosk
-  getUserMedia ─▶ AudioWorklet(80ms) ─▶ 無音検出 ─▶ 16kHz mono WAV
-      │  POST /api/stt            ─▶ {"text":"明日の天気は"}
-      │  POST /api/chat  (SSE)    ─▶ delta / sources / done / error
-      │  文分割 ─▶ POST /api/tts  ─▶ WebAudio で再生
-      │  GET  /api/config         ─▶ 「いま Haiku 4.5」の表示
-      ▼  すべて同一オリジン https://aichat.local:9800
-[ローカルサーバー]  device/server   Node + Hono
-  画面の配信・管理UI・AI の呼び出し。**鍵を持つのはここだけ**
+[端末]  いまは Mac のブラウザ（device/web）。将来は小さな箱
+  getUserMedia ─▶ AudioWorklet(80ms) ─▶ WebSocket /ws にそのまま流す
+      ◀── JSON     {state, question, answer, sources} ─▶ 画面に描く
+      ◀── バイナリ  読み上げの WAV                    ─▶ WebAudio で鳴らす
       ▼
-  Claude / Gemini   Gemini or OpenAI（音声認識）   VOICEVOX（読み上げ）
+[ローカルサーバー]  device/server   Node + Hono   ★ 判断はすべてここ
+  連続 ASR + 文字列一致 ─▶ ウェイクワード（ai/wake.ts）
+  リングバッファから発話を切り出す（audio/ring.ts, audio/endpoint.ts）
+  音声認識 ─▶ Claude / Gemini（SSE）─▶ delta を文に切る ─▶ VOICEVOX
+  チャットの保存・画面の配信・管理UI。**鍵を持つのはここだけ**
+      ▼
+  Claude / Gemini   ohr = macOS の音声認識（既定）   VOICEVOX（読み上げ）
 ```
+
+**判断も推論もサーバーに集める。** 端末は「マイクを送る・音を鳴らす・文字を描く」
+だけで、機械学習を載せない（[06](06-device-implementation.md)）。
+サーバーは **Mac に置いたままにする**。Raspberry Pi へ移す構成ではない。
+
+> **HTTP の経路も残っている。** マイクを開かずボタンで話しかけると、
+> ブラウザが `POST /api/stt` → `POST /api/chat`（SSE）→ `POST /api/tts` を順に叩き、
+> 状態もブラウザが持つ。先に作ったもので、**マイクを開かずに一周を確かめられる**
+> ので残してある。デバイスに載せるのは WebSocket のほう。
 
 原則は `../aichat` から引き継ぐ。**AI の鍵はサーバーにだけ置く。**
 
@@ -43,7 +53,7 @@
 2. **secure context**。`getUserMedia` は secure context でしか動かず、HTTP で
    secure context 扱いになるのは `localhost` / `127.0.0.1` だけ。
    **「静的ファイルをどこかに置いて開く」という選択肢が最初から無い**
-3. **置き場所**。VOICEVOX の2段呼び出しや、Pi のハードウェアに触る処理の行き先
+3. **置き場所**。VOICEVOX の2段呼び出し・ウェイクワードの判定・チャットの保存の行き先
 
 **127.0.0.1 にバインドする。** `/api/*` は認証を持たないので、LAN に開くと
 同じネットワークの誰でも AI を呼べる（課金はこちら持ち）。守りは
@@ -86,8 +96,8 @@
 
 テレビやエアコンの音がある部屋では RMS では無理。入り口を
 「80ms の塊を流し込む」形にしてあるので、Silero VAD（`@ricky0123/vad-web`）に
-差し替えられる。その際 onnx と wasm は `public/` に置く（CDN 依存を残すと Pi が
-オフラインのとき無言で壊れる）。
+差し替えられる。**いまは無音検出もサーバー側**（`server/src/audio/endpoint.ts`）
+なので、差し替え先も Node で動くものを選ぶ。
 
 ## 3. 音声認識（STT）
 
@@ -109,7 +119,7 @@ macOS 本来の LaunchAgent で常駐させている。
 | モデル | 備考 |
 |---|---|
 | `apple-speech` | **既定。** macOS 26+ / Apple Silicon。`ohr` が要る |
-| `local-whisper` | ローカル。**Pi ではこちらになる。** `whisper-server` が要る |
+| `local-whisper` | ローカル。Mac 以外でも動く逃げ道。`whisper-server` が要る |
 | `gemini-flash-latest` | 回答で使う鍵をそのまま使える（鍵が増えない） |
 | `gpt-4o-transcribe` / `whisper-1` | 書き起こし専用。`OPENAI_API_KEY` が要る |
 
@@ -159,39 +169,37 @@ ad-hoc 署名・`.app` バンドル化・`/tmp` の外への移動、いずれ�
 自前で書くより速く（SpeechAnalyzer は SFSpeechRecognizer より新しい API）、
 保守も要らない。
 
-### Pi に持っていくとき
+### Mac 以外で動かすことになったら
 
-**Raspberry Pi には Apple の音声認識が無い。** Phase C では
-`local-whisper` に切り替わる見込み。設定は `/admin` から変えるだけで済むよう、
-両方を実装して残してある。
+**Apple の音声認識は macOS でしか動かない。** サーバーを Mac に置く限り困らないが、
+置き場所を変えるなら `local-whisper` に切り替わる（0.14秒 → 0.74秒）。
+`/admin` の切り替えだけで済むよう、両方を実装して残してある。
+
+> **これはサーバーを Mac に置く理由そのもの。** 音声認識が 5 倍速く、精度でも上回り、
+> 音声が家の外に出ない。端末を安い箱にしても、この利点は手放さずに済む。
 
 **ブラウザの `SpeechRecognition`（Web Speech API）は使わない。**
 音声を Google のサーバーに送るので、プライバシー要件と噛み合わない。
 
 ## 4. 読み上げ（TTS）— ここが一番の落とし穴
 
-**本命は VOICEVOX。`speechSynthesis` は Mac での確認用に留める。**
+**本命は VOICEVOX。`speechSynthesis` は動作確認の代役に留める。**
 
 Mac で開発していると `speechSynthesis` で普通に日本語が喋れてしまう
-（この機械には ja_JP の音声が 9 種類ある）。**それに頼ると Pi で詰む。**
+（この機械には ja_JP の音声が 9 種類ある）。**それに頼ると端末を作る段で詰む。**
 
-| | macOS の Chrome / Safari | Linux (Pi) の Chromium |
-|---|---|---|
-| 日本語の音声 | ◎ Kyoko ほか標準で入っている | **✕ 既定では無い**。`getVoices()` が空配列になる |
-| 仕組み | OS の音声合成をそのまま使う | speech-dispatcher 経由。既定の espeak-ng は**漢字を読めない** |
-
-さらに2つ、`speechSynthesis` を避けるべき理由がある。
-
+- **端末はブラウザではない。** 音を鳴らすだけの箱に `speechSynthesis` は無い。
+  サーバーが WAV を作って送る形でないと、そもそも成立しない
 - **エコーキャンセルの参照信号に入らない。** ブラウザの AEC は「自分が鳴らした音」を
-  参照にする。speech-dispatcher は別プロセスで音を出すのでその対象外になり、
+  参照にする。OS 側の別プロセスが音を出すとその対象外になり、
   **読み上げ中の自分の声をマイクが拾ってループする**。
-  `/api/tts` で取った WAV をブラウザ内の WebAudio で鳴らせば確実に参照に入る
-- **自動再生の制限。** 起動直後、ユーザーが触る前には喋れない。キオスクでは
-  `--autoplay-policy=no-user-gesture-required` か、起動時に一度だけ触らせる導線が要る
+  WAV を受け取って WebAudio で鳴らせば確実に参照に入る
+- **声を選べない。** ずんだもんを使う以上、代替にならない
+- **自動再生の制限。** 起動直後、ユーザーが触る前には喋れない。
+  ウェイクワードで始まると最初の操作から遠く離れるので、
+  先に無音を鳴らして解除しておく必要がある（`web/src/main.ts` の `prime`）
 
-したがって **Mac の段階から VOICEVOX を使って開発する**。
-Apple Silicon の Mac と Raspberry Pi 5 はどちらも arm64 なので、
-**まったく同じイメージ**が動く。
+したがって **最初から VOICEVOX を使って開発する**。
 
 ```bash
 docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
@@ -253,30 +261,33 @@ docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 2. 音声認識を速いものにする
 3. 回答の長さを「短め」にする（`/admin`）
 
-> **Pi では作り直しになる見込み。** 上の数字は Apple Silicon のもので、
-> Raspberry Pi 5 は数倍遅い。実時間比が 1.0 を超えると
-> **再生が生成に追いつかれて途切れる**。Phase C で必ず測り直すこと。
-> 超えていたら (a) 話者を軽いものに変える (b) 1文をもっと短く切る
-> (c) 読み上げだけクラウド（ElevenLabs 等）に逃がす、のいずれか。
+> **この数字が保てるのは、合成が Mac に残るから。** 実時間比が 1.0 を超えると
+> **再生が生成に追いつかれて途切れる**。Apple Silicon で 0.40〜0.82x なので余裕がある。
+> VOICEVOX を非力な機械へ移すとここが崩れるため、**読み上げもサーバーに置いたままにする。**
 
-## 5. ウェイクワード（あと回し）
+## 5. ウェイクワード — **連続 ASR + 文字列一致**（実装済み）
 
-MVP は画面タップ / スペースキー。先に体験の骨格（先読み読み上げ・状態遷移・
-「やめる」）を固める。
+当初は openWakeWord の専用モデルを学習させる前提だったが、**学習は要らなかった。**
+音声がサーバーに来ているので、**既定の音声認識を短い窓で回し続け、
+書き起こしに語が出たら起動する**（`server/src/ai/wake.ts`）。
 
-足すときの順番:
+| | |
+|---|---|
+| 窓 | 2.0 秒を 1.0 秒ずつずらす（`WAKE_WINDOW_SEC` / `WAKE_HOP_SEC`） |
+| 費用 | 1窓 0.14〜0.15 秒。毎秒投げて CPU 1コアの 12〜15% |
+| 実測 | 「ずんだもん」で **検出 10/10・誤起動 0/15**（合成音声。[06](06-device-implementation.md)） |
 
-1. onnxruntime-web + openWakeWord の 3 モデル直列
-   （`melspectrogram` → `embedding` → 語）を 80ms ごとに。**専用の Web Worker で回す**
-   （メインスレッドだと逐次表示の描画で詰まる）。前処理は WASM バックエンド固定
-2. **日本語のウェイクワードモデルは既製品が無い。** VOICEVOX で
-   「ねえアイチャット」を数千サンプル合成して学習させる。学習は Mac か Colab で行い、
-   `.onnx` だけを `public/` に置く。ブラウザ側は推論のみ
-3. 先に英語の既製モデル（`hey_jarvis`）で経路を通し、体験として成立するかを見る
+**ウェイクワードは「綴り」ではなく「認識器が出す文字列」で決める。**
+当初の候補「ねえアイチャット」は、話者を変えても一貫して**「恋愛チャット」**と
+書き起こされた。なので**判定語は複数持てる**ようにし（`ずんだもん` / `すんだもん`）、
+比較の前に正規化する（空白・長音・記号・全半角を落とす）。語は `/admin` で変えられる。
 
-**逃げ道**: ブラウザで重い / 不安定なら、Pi では Python の `openwakeword` で
-常時待ち受けし、検出だけをローカルサーバー経由でブラウザに伝える。
-`/api/*` の契約は変えずに実装だけ移せる。
+実マイクでの測定用に、AI を呼ばない試験画面がある（`/wake.html` → `/ws?mode=wake`）。
+**何時間流しても費用はゼロ。**
+
+**逃げ道**: CPU や誤起動が問題になったら openWakeWord / microWakeWord に移る。
+日本語の既製モデルは無いので VOICEVOX で合成して学習させることになるが、
+**サーバー側で動かすので端末の実装は一切変わらない。**
 
 ## 6. デバイス側ソフト
 
@@ -285,35 +296,45 @@ MVP は画面タップ / スペースキー。先に体験の骨格（先読み�
 | ローカルサーバー | **Node 22 + Hono** | Worker から移してきたコードが Web 標準 API（fetch / Response / ReadableStream / crypto.subtle）しか使っておらず、ほぼそのまま動いた。Node 22 は `.ts` をそのまま実行できるのでビルド手順が要らない |
 | 画面 | **Vite + 素の TypeScript**（フレームワーク無し） | 状態は5つと本文だけ。`delta` を DOM に直接足すのが最速で、VDOM を挟む理由が無い |
 | 配色 | 常に暗い。`prefers-color-scheme` は見ない | 夜のテーブルで白背景は眩しい |
-| OS（Pi） | Raspberry Pi OS（64bit, Desktop） | Touch Display 2 とカメラの公式サポート |
-| サービス化（Pi） | systemd（`aichat-device-server`, `voicevox`） | 再起動で復旧 |
+| 端末との口 | **WebSocket `/ws`**（`ws` パッケージ） | 音声の送出と、状態・文字・音声の受信が1本で済む |
+| 音声認識の常駐 | **LaunchAgent**（`device/deploy/macos/`） | `ohr` に `brew services` の仕組みが無い。TCC の判定がユーザー単位なので LaunchDaemon は使えない |
+| 読み上げの常駐 | Docker の `--restart unless-stopped` | OrbStack がログイン時に起動すれば足りる |
 | 鍵 | `device/server/.env` か OS の鍵束 | git に入れない |
 | 設定の保存 | `device/server/data/config.json` | もとは Cloudflare KV。一時ファイル → rename で書くので、電源が落ちても壊れない |
-| 更新 | `git pull` + `systemctl restart` | 家庭内 1 台なので OTA は作らない |
+| チャットの保存 | `device/server/data/chats/`（1チャット1ファイル） | [07](07-chat-design.md)。権限 0600・件数に上限 |
 
-`node_modules` を Pi でビルドし直さずに済むよう、`device/web` は Mac で
-`vite build` して `dist` を持ち込む。
+## 7. 端末側ソフト（これから）
 
-## 7. Mac で先に動かす
+**推論が載らないので要求が低い。** 責務は3つだけ。
 
-ハードを買う前に、Mac のブラウザで一周を確かめる。**書いたものはそのまま Pi で動く。**
+```
+loop:
+  マイクから 80ms 読む → WebSocket で送る
+  受け取る: {状態, 文字} → 画面に描く
+  受け取る: 音声 → 鳴らす
+```
+
+Python なら 150 行程度。候補のハードと描画の選定は
+[06](06-device-implementation.md)（Pi Zero 2 W / ESP32-S3 / Pi 4）。
+
+いまはこの役をブラウザ（`device/web`）が務めている。
 
 ```bash
 cd device/server && npm start          # 既定は stub（AI を呼ばない）
 cd device/web    && npm run dev        # https://aichat.local:9800
 ```
 
-`127.0.0.1` で開くこと。LAN の IP ではマイクが使えない。
-
 ## 決定事項まとめ
 
 | 項目 | 決定 |
 |---|---|
-| ハード | Raspberry Pi 5 8GB + Touch Display 2 + USB 会議マイク |
-| フロント | ブラウザ（Vite + 素の TypeScript）。マイク・無音検出・読み上げもここ |
+| 置き場所 | **サーバーは Mac に据え置く。** 端末は繋ぐだけで、判断を持たない |
+| ハード（端末） | 未定。[06](06-device-implementation.md) で Pi Zero 2 W / ESP32-S3 / Pi 4 を比較中。**Pi 5 + Touch Display 2 は不採用**（推論が載らず要求が下がったため） |
+| 端末との口 | **WebSocket `/ws`**。バイナリのフレームを送り、JSON と WAV を受ける |
 | サーバー | Node 22 + Hono **1つだけ**。鍵を持ち、AI を直接呼ぶ。Cloudflare Worker は廃止 |
-| STT | **ローカルの whisper.cpp**（large-v3-turbo + `-ac 512`、0.74秒）。クラウドにも切り替えられる |
-| TTS | **VOICEVOX**。Mac の段階から使う。`speechSynthesis` は確認用のみ |
-| 無音検出 | RMS + プリロール 300ms。将来 Silero VAD に差し替え |
-| ウェイクワード | あと回し。まずタップ / スペースキー |
+| フロント | ブラウザ（Vite + 素の TypeScript）。いまは端末の代役 |
+| STT | **macOS の SpeechAnalyzer（`ohr`）**（0.14秒・誤り0件）。whisper とクラウドにも切り替えられる |
+| TTS | **VOICEVOX**。最初から使う。`speechSynthesis` は確認用のみ |
+| 無音検出 | RMS + プリロール。WebSocket 経路ではサーバー側（リングバッファから遡る） |
+| ウェイクワード | **連続 ASR + 文字列一致**（既定「ずんだもん」）。専用モデルの学習は不要だった |
 | 先行検証 | **Mac のブラウザ**（iPad 版は不採用） |
