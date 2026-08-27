@@ -20,16 +20,17 @@ const { titleFrom } = await import("../src/chats/types.ts");
 
 const CHATS = join(DATA_DIR, "chats");
 const at = () => new Date().toISOString();
+const { UNKNOWN_DEVICE_ID, normalizeDeviceId } = await import("../src/chats/types.ts");
 
 /** 連番の id を確実に分けるため、時刻をずらして作る。 */
 function makeChat(i: number) {
-  return store.createChat("device", new Date(2026, 0, 1, 0, 0, i));
+  return store.createChat("device", UNKNOWN_DEVICE_ID, new Date(2026, 0, 1, 0, 0, i));
 }
 
 // --- 基本 ---
 
 test("作って追記して読み直せる", () => {
-  const chat = store.createChat("device");
+  const chat = store.createChat("device", UNKNOWN_DEVICE_ID);
 
   store.appendTurn(chat.id, { role: "user", content: "明日の天気は", at: at() });
   store.appendTurn(chat.id, { role: "assistant", content: "晴れです", at: at() });
@@ -42,7 +43,7 @@ test("作って追記して読み直せる", () => {
 
 test("題名は最初の質問から決まる", () => {
   // AI に付けさせると呼び出しが1回増えて遅くなるので、冒頭を切り出す。
-  const chat = store.createChat("web");
+  const chat = store.createChat("web", UNKNOWN_DEVICE_ID);
   assert.equal(chat.title, "（無題）");
 
   store.appendTurn(chat.id, { role: "user", content: "晩ごはん何にしよう", at: at() });
@@ -127,7 +128,7 @@ test("壊れた発言だけを捨てて、残りは読める", () => {
 test("上限を超えると古いものから消える", () => {
   const limit = 5;
   for (let i = 0; i < 12; i += 1) {
-    store.createChat("device", new Date(2026, 1, 1, 0, 0, i));
+    store.createChat("device", UNKNOWN_DEVICE_ID, new Date(2026, 1, 1, 0, 0, i));
     store.prune(limit);
   }
   assert.equal(store.listChats(100).length <= limit, true);
@@ -138,7 +139,7 @@ test("暴走した会話だけ打ち切る", () => {
   // 安全弁でしかない。**時間では打ち切らない**（間があいたかどうかは
   // findResumable が見る）。以前は「5分で打ち切り」だったため、
   // 話している最中に会話が別のチャットに切り替わっていた。
-  const chat = store.createChat("device", new Date(2026, 2, 1, 0, 0, 0));
+  const chat = store.createChat("device", UNKNOWN_DEVICE_ID, new Date(2026, 2, 1, 0, 0, 0));
   assert.equal(store.reachedLimit(chat), false);
 
   const turn = { role: "user" as const, content: "x", at: at() };
@@ -201,7 +202,7 @@ test("一時ファイルが残らない", () => {
 });
 
 test("AI に渡す形にできる", () => {
-  const chat = store.createChat("web");
+  const chat = store.createChat("web", UNKNOWN_DEVICE_ID);
   store.appendTurn(chat.id, { role: "user", content: "こんにちは", at: at() });
   store.appendTurn(chat.id, { role: "assistant", content: "はい", at: at() });
 
@@ -215,7 +216,7 @@ test("AI に渡す形にできる", () => {
 test("AI に渡すのは直近の往復だけ", () => {
   // 保存は全部のまま、送る分だけを絞る。会話がいくら続いても送る量が
   // 一定になるので、課金が会話の長さで膨らまない。
-  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 0));
+  const chat = store.createChat("web", UNKNOWN_DEVICE_ID, new Date(2026, 10, 1, 0, 0, 0));
   for (let i = 1; i <= 6; i += 1) {
     store.appendTurn(chat.id, { role: "user", content: `質問${i}`, at: at() });
     store.appendTurn(chat.id, { role: "assistant", content: `回答${i}`, at: at() });
@@ -233,7 +234,7 @@ test("切り詰めても必ず user から始まる", () => {
   // ai/chat.ts の parseBody は先頭が user でないと 400 で弾く。
   // 回答が空だった往復があると発言数の偶奇がずれ、単純に後ろから
   // N 件取ると assistant から始まってしまう。
-  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 1));
+  const chat = store.createChat("web", UNKNOWN_DEVICE_ID, new Date(2026, 10, 1, 0, 0, 1));
   const roles = ["user", "assistant", "user", "user", "assistant"] as const;
   roles.forEach((role, i) => {
     store.appendTurn(chat.id, { role, content: `発言${i + 1}`, at: at() });
@@ -251,7 +252,7 @@ test("切り詰めても必ず user から始まる", () => {
 });
 
 test("上限より短い会話はそのまま全部渡す", () => {
-  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 2));
+  const chat = store.createChat("web", UNKNOWN_DEVICE_ID, new Date(2026, 10, 1, 0, 0, 2));
   store.appendTurn(chat.id, { role: "user", content: "こんにちは", at: at() });
   store.appendTurn(chat.id, { role: "assistant", content: "はい", at: at() });
 
@@ -268,10 +269,10 @@ test("上限より短い会話はそのまま全部渡す", () => {
 
 const GAP = 10 * 60_000;
 
-/** 1日1件、話したチャットを作る。 */
-function talked(day: number, origin: "device" | "web") {
+/** 1日1件、その端末で話したチャットを作る。 */
+function talked(day: number, deviceId: string, origin: "device" | "web" = "device") {
   const when = new Date(2026, 11, day, 12, 0, 0);
-  const chat = store.createChat(origin, when);
+  const chat = store.createChat(origin, deviceId, when);
   store.appendTurn(chat.id, {
     role: "user",
     content: "今日これから雨降る",
@@ -281,27 +282,66 @@ function talked(day: number, origin: "device" | "web") {
 }
 
 test("少し間があいたくらいなら直前の会話を継ぐ", () => {
-  const { id, spokeAt } = talked(1, "device");
+  const { id, spokeAt } = talked(1, "living");
 
-  const found = store.findResumable("device", GAP, spokeAt + 3 * 60_000);
+  const found = store.findResumable("living", GAP, spokeAt + 3 * 60_000);
   assert.equal(found?.id, id, "3分後なのに別の会話にされている");
   assert.equal(found?.turns.length, 1, "継ぐなら中身も要る");
 });
 
 test("間があきすぎたら継がない", () => {
-  const { spokeAt } = talked(2, "device");
-  assert.equal(store.findResumable("device", GAP, spokeAt + 11 * 60_000), null);
+  const { spokeAt } = talked(2, "living");
+  assert.equal(store.findResumable("living", GAP, spokeAt + 11 * 60_000), null);
 });
 
-test("画面が違えば継がない", () => {
-  // ブラウザで話していた会話をデバイスが引き取るのは驚きが大きい。
-  const { spokeAt } = talked(3, "web");
-  assert.equal(store.findResumable("device", GAP, spokeAt + 60_000), null);
+test("端末が違えば継がない", () => {
+  // **これが複数台にしたときの本題。** 居間の会話を寝室のデバイスが
+  // 引き取ると、寝室の質問に居間の文脈が付いて AI に渡る。
+  const { id, spokeAt } = talked(3, "living");
+
+  assert.equal(store.findResumable("bedroom", GAP, spokeAt + 60_000), null);
+  assert.equal(
+    store.findResumable("living", GAP, spokeAt + 60_000)?.id,
+    id,
+    "自分の会話まで継げなくなっている",
+  );
+});
+
+test("端末を区別する前の記録は誰も継がない", () => {
+  // 保存済みのチャットには deviceId が無い。名乗る端末が身に覚えのない
+  // 会話を継いでしまわないよう、空文字はどの端末とも一致させない。
+  const when = new Date(2026, 11, 6, 12, 0, 0);
+  const id = store.newChatId(when);
+  writeFileSync(
+    join(CHATS, `${id}.json`),
+    JSON.stringify({
+      id,
+      startedAt: when.toISOString(),
+      updatedAt: when.toISOString(),
+      origin: "device",
+      title: "昔の会話",
+      endedBy: null,
+      turns: [{ role: "user", content: "昔の話", at: when.toISOString() }],
+    }),
+  );
+
+  assert.equal(store.readChat(id)?.deviceId, "", "空文字に落ちていない");
+  const now = when.getTime() + 60_000;
+  assert.equal(store.findResumable("living", GAP, now), null, "名乗る端末が継いでいる");
+  assert.equal(store.findResumable(UNKNOWN_DEVICE_ID, GAP, now), null);
+  assert.equal(store.findResumable("", GAP, now), null, "空文字で引けてしまう");
+});
+
+test("名乗らない端末どうしは継ぐ", () => {
+  // 古いクライアントや test/fake-device.mjs のような素の接続。
+  // ここまで壊すと、実機を作る前の確認ができなくなる。
+  const { id, spokeAt } = talked(7, UNKNOWN_DEVICE_ID);
+  assert.equal(store.findResumable(UNKNOWN_DEVICE_ID, GAP, spokeAt + 60_000)?.id, id);
 });
 
 test("暴走上限に達した会話は継がない", () => {
-  const when = new Date(2026, 11, 4, 12, 0, 0);
-  const chat = store.createChat("device", when);
+  const when = new Date(2026, 11, 8, 12, 0, 0);
+  const chat = store.createChat("device", "living", when);
   for (let i = 0; i < store.MAX_TURNS * 2; i += 1) {
     store.appendTurn(chat.id, {
       role: i % 2 === 0 ? "user" : "assistant",
@@ -310,10 +350,28 @@ test("暴走上限に達した会話は継がない", () => {
     });
   }
 
-  assert.equal(store.findResumable("device", GAP, when.getTime() + 60_000), null);
+  assert.equal(store.findResumable("living", GAP, when.getTime() + 60_000), null);
 });
 
 test("0 分にすれば毎回新しい会話になる", () => {
-  const { spokeAt } = talked(5, "device");
-  assert.equal(store.findResumable("device", 0, spokeAt), null);
+  const { spokeAt } = talked(9, "living");
+  assert.equal(store.findResumable("living", 0, spokeAt), null);
+});
+
+test("端末 id は保存して読み直しても残る", () => {
+  const chat = store.createChat("device", "living", new Date(2026, 11, 10, 12, 0, 0));
+  assert.equal(store.readChat(chat.id)?.deviceId, "living");
+  assert.equal(store.listChats().find((c) => c.id === chat.id)?.deviceId, "living");
+});
+
+test("危ない端末 id は弾く", () => {
+  // 保存され、履歴の画面に出て、いつかファイル名に入りうる値。
+  for (const bad of ["../evil", "a/b", "a b", "-rf", "あ", "a".repeat(33), ""]) {
+    assert.equal(normalizeDeviceId(bad), "", bad);
+  }
+  for (const good of ["living", "browser-a3f9", UNKNOWN_DEVICE_ID, "a".repeat(32)]) {
+    assert.equal(normalizeDeviceId(good), good, good);
+  }
+  assert.equal(normalizeDeviceId(null), "");
+  assert.equal(normalizeDeviceId(undefined), "");
 });

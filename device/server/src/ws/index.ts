@@ -16,6 +16,10 @@ import type { Server } from "node:http";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
+import {
+  UNKNOWN_DEVICE_ID,
+  normalizeDeviceId,
+} from "../chats/types.ts";
 import type { Config } from "../config.ts";
 import type { DeviceMessage, ServerMessage } from "./protocol.ts";
 import { Session } from "./session.ts";
@@ -45,7 +49,13 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
       return;
     }
 
-    console.log(`[ws] つながりました: ${from}`);
+    // **端末 id はここでだけ確かめる。** 通った値は「保存してよい・画面に
+    // 出してよい・ファイル名に入れてよい」と保証されたものとして下流へ渡す。
+    // 名乗らない端末は1つにまとめる（古いクライアントや素の接続）。
+    const deviceId =
+      normalizeDeviceId(url.searchParams.get("device")) || UNKNOWN_DEVICE_ID;
+
+    console.log(`[ws] つながりました: ${from} (${deviceId})`);
 
     const session = new Session(config, {
       send: (message: ServerMessage) => sendJson(socket, message),
@@ -53,7 +63,7 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
         sendJson(socket, { type: "audio", bytes: audio.byteLength });
         await sendBinary(socket, audio);
       },
-    });
+    }, deviceId);
 
     socket.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) {

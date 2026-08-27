@@ -11,6 +11,7 @@
  */
 
 import type { Source } from "./client.ts";
+import { deviceId } from "./device-id.ts";
 
 /** サーバーが持つ状態。画面はこれをそのまま映す。 */
 export type DeviceState =
@@ -42,7 +43,10 @@ export class DeviceSocket {
 
   connect(onEvent: (event: DeviceEvent) => void): void {
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${scheme}//${location.host}/ws`);
+    // **どの端末かを名乗る。** サーバーはこれで会話を継ぐ相手を決める。
+    // 名乗らないと、同じ家の別のデバイスと会話が混ざる。
+    const query = `?device=${encodeURIComponent(deviceId())}`;
+    const socket = new WebSocket(`${scheme}//${location.host}/ws${query}`);
     socket.binaryType = "arraybuffer";
     this.socket = socket;
 

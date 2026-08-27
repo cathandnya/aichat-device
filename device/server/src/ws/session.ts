@@ -126,10 +126,18 @@ export class Session {
 
   private readonly config: Config;
   private readonly io: SessionIO;
+  /**
+   * この接続の端末。**会話を継ぐ相手を決める鍵。**
+   *
+   * 接続ごとの値なので `Config`（プロセス全体の設定）には入れない。
+   * 検証は `ws/index.ts` で済ませてあり、ここに来るのは安全な値だけ。
+   */
+  private readonly deviceId: string;
 
-  constructor(config: Config, io: SessionIO) {
+  constructor(config: Config, io: SessionIO, deviceId: string) {
     this.config = config;
     this.io = io;
+    this.deviceId = deviceId;
     this.setState("idle", "話しかけてください");
     this.sendConfig();
   }
@@ -234,8 +242,8 @@ export class Session {
 
     const saved = readConfig();
     const chat =
-      findResumable("device", saved.conversationGapMin * 60_000) ??
-      createChat("device");
+      findResumable(this.deviceId, saved.conversationGapMin * 60_000) ??
+      createChat("device", this.deviceId);
 
     this.chatId = chat.id;
     // **呼ばれるたびに必ず戻す。会話ごとではない。**
@@ -438,7 +446,7 @@ export class Session {
     const current = readChat(this.chatId);
     if (current && reachedLimit(current)) {
       endChat(this.chatId, "limit");
-      const fresh = createChat("device");
+      const fresh = createChat("device", this.deviceId);
       this.chatId = fresh.id;
       this.io.send({ type: "chat", chatId: fresh.id, title: fresh.title });
     }

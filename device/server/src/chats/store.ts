@@ -27,6 +27,7 @@ import { dataPath, readJsonSafe, writeJsonAtomic } from "../data.ts";
 import {
   CHAT_END_REASONS,
   CHAT_ORIGINS,
+  normalizeDeviceId,
   titleFrom,
   type Chat,
   type ChatEndReason,
@@ -117,6 +118,11 @@ function parseChat(raw: unknown): Chat | null {
     startedAt: typeof c.startedAt === "string" ? c.startedAt : "",
     updatedAt: typeof c.updatedAt === "string" ? c.updatedAt : "",
     origin,
+    // **`origin` のように既定値へ丸めない。** 丸め先が実在の端末になると、
+    // その端末が身に覚えのない会話を継いでしまう。空文字はどの端末とも
+    // 一致しないので、丸め先として安全。保存された値も一度確かめる
+    // （ファイルは手で書き換えられる）。
+    deviceId: normalizeDeviceId(c.deviceId as string),
     title: typeof c.title === "string" && c.title ? c.title : "（無題）",
     endedBy,
     turns,
@@ -152,6 +158,7 @@ export function listChats(limit = CHAT_RETENTION): ChatSummary[] {
       startedAt: chat.startedAt,
       updatedAt: chat.updatedAt,
       origin: chat.origin,
+      deviceId: chat.deviceId,
       title: chat.title,
       endedBy: chat.endedBy,
       turns: chat.turns.length,
@@ -160,13 +167,18 @@ export function listChats(limit = CHAT_RETENTION): ChatSummary[] {
   return out;
 }
 
-export function createChat(origin: ChatOrigin, now = new Date()): Chat {
+export function createChat(
+  origin: ChatOrigin,
+  deviceId: string,
+  now = new Date(),
+): Chat {
   const at = now.toISOString();
   const chat: Chat = {
     id: newChatId(now),
     startedAt: at,
     updatedAt: at,
     origin,
+    deviceId,
     title: "（無題）",
     endedBy: null,
     turns: [],
@@ -266,18 +278,23 @@ export function reachedLimit(chat: Chat): boolean {
  * 保存から探すのは、**接続が切れても文脈が残るようにする**ため。
  * セッションの変数に覚えると、ブラウザの再読み込みで飛ぶ。
  *
- * `origin` を一致させるのは、ブラウザで話していた会話をデバイスが
- * 引き継ぐと驚きが大きいため。画面ごとに別の流れにする。
+ * **絞り込みは端末（`deviceId`）で行う。** 居間の会話を寝室のデバイスが
+ * 引き取ると驚きが大きい。以前は `origin`（device / web）で分けていたが、
+ * 据え置きを2台置くと両方が同じ `"device"` の会話を奪い合った。
+ *
+ * 空の `deviceId` では**何も返さない**。空はデバイスを区別する前に保存された
+ * ものの印で、名乗らない端末（`UNKNOWN_DEVICE_ID`）とは別物。混ぜると、
+ * 昔の会話を今の端末が継いでしまう。
  */
 export function findResumable(
-  origin: ChatOrigin,
+  deviceId: string,
   gapMs: number,
   now = Date.now(),
 ): Chat | null {
-  if (gapMs <= 0) return null;
+  if (gapMs <= 0 || !deviceId) return null;
 
-  // 一覧は新しい順。同じ origin の一番新しいものだけを見る。
-  const latest = listChats().find((c) => c.origin === origin);
+  // 一覧は新しい順。同じ端末の一番新しいものだけを見る。
+  const latest = listChats().find((c) => c.deviceId === deviceId);
   if (!latest) return null;
 
   const updated = Date.parse(latest.updatedAt);

@@ -25,6 +25,7 @@ import {
   reachedLimit,
   readChat,
 } from "../chats/store.ts";
+import { UNKNOWN_DEVICE_ID } from "../chats/types.ts";
 import { readConfig } from "../store.ts";
 import type { Source } from "../ws/protocol.ts";
 import { SSELineParser, SSE_HEADERS, sseMessage } from "../sse.ts";
@@ -47,13 +48,13 @@ export async function handleChat(c: Context, runtime: Runtime): Promise<Response
 
   // 続きなら読む。無ければ作る。
   let chat = typeof chatId === "string" ? readChat(chatId) : null;
-  if (!chat) chat = createChat("web");
+  if (!chat) chat = createChat("web", UNKNOWN_DEVICE_ID);
 
   // 暴走よけ。文脈の長さは messagesOf が絞るので、ここに来るのは
   // 会話が異常に長く続いた場合だけ。
   if (reachedLimit(chat)) {
     endChat(chat.id, "limit");
-    chat = createChat("web");
+    chat = createChat("web", UNKNOWN_DEVICE_ID);
   }
 
   const asked = appendTurn(chat.id, {

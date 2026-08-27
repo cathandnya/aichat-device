@@ -10,6 +10,8 @@
  *
  *     GEMINI_BASE_URL=<偽の上流> ANTHROPIC_BASE_URL=<偽の上流> \
  *       AICHAT_MODE=live PORT=9899 node src/main.ts
+ *
+ * `AICHAT_DEVICE_ID=living` を付けると、その端末として名乗る（実機と同じ）。
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import WebSocket from "ws";
@@ -23,7 +25,11 @@ function pcmOf(path) {
   return buf.subarray(44); // WAV ヘッダを飛ばす
 }
 
-const ws = new WebSocket("ws://127.0.0.1:9801/ws");
+// **実機と同じ作法で名乗る。** 名乗らないと、同じ家の他のデバイスと
+// 会話が混ざる（サーバーは「名前のない端末」として1つにまとめる）。
+const deviceId = process.env.AICHAT_DEVICE_ID ?? "";
+const query = deviceId ? `?device=${encodeURIComponent(deviceId)}` : "";
+const ws = new WebSocket(`ws://127.0.0.1:9801/ws${query}`);
 const started = Date.now();
 const t = () => ((Date.now() - started) / 1000).toFixed(2).padStart(5);
 let audioBytes = 0, audioCount = 0;

@@ -35,6 +35,8 @@ export interface ChatSummary {
   startedAt: string;
   updatedAt: string;
   origin: "device" | "web";
+  /** どの端末で話したか。名乗らなかったものは "unknown"、古い記録は空。 */
+  deviceId: string;
   title: string;
   endedBy: string | null;
   turns: number;
@@ -51,10 +53,11 @@ export interface Chat extends ChatSummary {
   turns: never;
 }
 
-/** 一覧。新しい順。取れなければ空。 */
-export async function fetchChats(): Promise<ChatSummary[]> {
+/** 一覧。新しい順。取れなければ空。`device` を渡すとその端末のぶんだけ。 */
+export async function fetchChats(device?: string): Promise<ChatSummary[]> {
   try {
-    const response = await fetch("/api/chats");
+    const query = device ? `?device=${encodeURIComponent(device)}` : "";
+    const response = await fetch(`/api/chats${query}`);
     if (!response.ok) return [];
     return ((await response.json()) as { chats: ChatSummary[] }).chats;
   } catch {

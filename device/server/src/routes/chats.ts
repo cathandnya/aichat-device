@@ -14,9 +14,20 @@ import {
   listChats,
   readChat,
 } from "../chats/store.ts";
+import { UNKNOWN_DEVICE_ID, normalizeDeviceId } from "../chats/types.ts";
 
+/**
+ * 一覧。`?device=<id>` でその端末のものだけに絞れる。
+ *
+ * **絞るのは呼ぶ側の判断。** 画面（`/history`）は自分の端末のぶんだけ、
+ * 管理画面（`/history?all=1`）は全部を見る。既定は全部で、いままでと変わらない。
+ */
 export function handleListChats(c: Context): Response {
-  return c.json({ chats: listChats() }, 200, { "Cache-Control": "no-store" });
+  const device = normalizeDeviceId(c.req.query("device"));
+  const chats = device
+    ? listChats().filter((chat) => chat.deviceId === device)
+    : listChats();
+  return c.json({ chats }, 200, { "Cache-Control": "no-store" });
 }
 
 export function handleGetChat(c: Context): Response {
@@ -28,8 +39,11 @@ export function handleGetChat(c: Context): Response {
 }
 
 export function handleCreateChat(c: Context): Response {
-  // Web UI の「新しいチャット」から呼ばれる。
-  return c.json(createChat("web"), 201, { "Cache-Control": "no-store" });
+  // HTTP の経路に端末の概念は無い。名乗る手段を足すのは、名乗りたいものが
+  // 現れてから（検証の入口を `ws/index.ts` の1つに保ちたい）。
+  return c.json(createChat("web", UNKNOWN_DEVICE_ID), 201, {
+    "Cache-Control": "no-store",
+  });
 }
 
 export function handleDeleteChat(c: Context): Response {

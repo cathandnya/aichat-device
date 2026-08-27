@@ -5,6 +5,10 @@
  * 近づけた。その受け皿がここ。話す仕掛けは一切持たない
  * （マイクも WebSocket も読み上げも読み込まない）。
  *
+ * **既定はこの端末のぶんだけ。** 居間のデバイスで寝室の会話を読み返す
+ * 場面が思いつかないうえ、端末を分ける前の記録まで並んで邪魔になる。
+ * 家じゅうを見返すのは `?all=1`（管理画面からの入口）。
+ *
  * 題名も本文も上流の AI や音声認識から来た文字列なので、
  * HTML を組み立てずに `createElement` + `textContent` で作る。
  */
@@ -16,6 +20,7 @@ import {
   type ChatSummary,
   type ChatTurn,
 } from "./api/client.ts";
+import { deviceId } from "./api/device-id.ts";
 
 const el = {
   list: byId("list"),
@@ -26,9 +31,16 @@ const el = {
 let chats: ChatSummary[] = [];
 let selected: string | null = null;
 
+/** すべての端末を見るか。管理画面からの入口だけが立てる。 */
+const showAll = new URLSearchParams(location.search).get("all") === "1";
+
 void start();
 
 async function start(): Promise<void> {
+  if (showAll) {
+    document.title = "履歴（すべての端末）";
+    byId("heading").textContent = "履歴（すべての端末）";
+  }
   await refresh();
 
   // 別の窓やデバイスで話したぶんを、戻ってきたときに拾う。
@@ -38,10 +50,15 @@ async function start(): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
-  chats = await fetchChats();
+  chats = await fetchChats(showAll ? undefined : deviceId());
   el.count.textContent = chats.length ? `${chats.length} 件` : "";
   renderList();
 
+  if (!chats.length) {
+    showEmpty(
+      showAll ? "まだ何も話していません。" : "この端末ではまだ話していません。",
+    );
+  }
   if (selected && !chats.some((c) => c.id === selected)) {
     selected = null;
     showEmpty("選んでいたチャットは消えています。");
@@ -52,29 +69,77 @@ async function refresh(): Promise<void> {
 }
 
 function renderList(): void {
-  const items = chats.map((chat) => {
-    const li = document.createElement("li");
-    if (chat.id === selected) li.dataset.current = "1";
+  // 1台ぶんしか出さないときに見出しを立てても、同じ名前が1つ並ぶだけ。
+  el.list.replaceChildren(
+    ...(showAll ? groupsOf(chats).map(renderGroup) : chats.map(renderItem)),
+  );
+}
 
-    const button = document.createElement("button");
-    button.type = "button";
+/**
+ * 端末ごとにまとめる。
+ *
+ * `chats` は新しい順なので、**一度舐めて詰めるだけで並べ替えが要らない**。
+ * Map は入れた順を覚えているので、見出しの順は「最近話した端末の順」になる。
+ */
+function groupsOf(items: ChatSummary[]): [string, ChatSummary[]][] {
+  const groups = new Map<string, ChatSummary[]>();
+  for (const chat of items) {
+    const found = groups.get(chat.deviceId);
+    if (found) found.push(chat);
+    else groups.set(chat.deviceId, [chat]);
+  }
+  return Array.from(groups);
+}
 
-    const title = document.createElement("span");
-    title.className = "title";
-    // デバイスで話したものが分かるようにしておく。
-    title.textContent = `${chat.origin === "device" ? "🎙 " : ""}${chat.title}`;
+function renderGroup([id, items]: [string, ChatSummary[]]): HTMLElement {
+  const group = document.createElement("section");
+  group.className = "group";
 
-    const meta = document.createElement("span");
-    meta.className = "meta";
-    meta.textContent = `${when(chat.startedAt)}・${chat.turns} 発言`;
+  const head = document.createElement("h2");
+  head.className = "group-head";
+  head.textContent = `${deviceLabel(id)}・${items.length} 件`;
 
-    button.append(title, meta);
-    button.addEventListener("click", () => void open(chat.id));
-    li.append(button);
-    return li;
-  });
+  const list = document.createElement("ul");
+  list.className = "group-items";
+  list.append(...items.map(renderItem));
 
-  el.list.replaceChildren(...items);
+  group.append(head, list);
+  return group;
+}
+
+/**
+ * 見出しに出す名前。
+ *
+ * 実機は自分で `living` のような id を名乗るので、そのまま出せば読める。
+ * 名乗らなかったものと、端末を区別する前の記録には言葉を当てる。
+ */
+function deviceLabel(id: string): string {
+  if (!id) return "端末を分ける前の記録";
+  if (id === "unknown") return "名前のない端末";
+  if (id === deviceId()) return `${id}（この端末）`;
+  return id;
+}
+
+function renderItem(chat: ChatSummary): HTMLElement {
+  const li = document.createElement("li");
+  if (chat.id === selected) li.dataset.current = "1";
+
+  const button = document.createElement("button");
+  button.type = "button";
+
+  const title = document.createElement("span");
+  title.className = "title";
+  // 見出しは「どの機械か」、こちらは「どの経路か」。意味が違うので両方出す。
+  title.textContent = `${chat.origin === "device" ? "🎙 " : ""}${chat.title}`;
+
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = `${when(chat.startedAt)}・${chat.turns} 発言`;
+
+  button.append(title, meta);
+  button.addEventListener("click", () => void open(chat.id));
+  li.append(button);
+  return li;
 }
 
 async function open(id: string): Promise<void> {
@@ -99,6 +164,7 @@ async function open(id: string): Promise<void> {
   meta.className = "meta";
   meta.textContent = [
     summary ? when(summary.startedAt) : "",
+    showAll && summary ? deviceLabel(summary.deviceId) : "",
     summary?.origin === "device" ? "デバイス" : "ブラウザ",
     `${chat.turns.length} 発言`,
   ]

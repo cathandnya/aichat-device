@@ -64,6 +64,33 @@ body.history {
   flex-direction: column;
   gap: 0.2rem;
 }
+/* 端末ごとの塊。1台しか無ければ見出しが1つ出るだけ。 */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  background: var(--bg);
+  color: #5f6677;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+.group-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .list button {
   width: 100%;
   text-align: left;
@@ -78,7 +105,7 @@ body.history {
 .list button:hover {
   color: var(--fg);
 }
-.list li[data-current="1"] button {
+.group-items li[data-current="1"] button {
   background: var(--card);
   color: var(--fg);
 }

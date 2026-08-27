@@ -294,6 +294,10 @@ function settingsPage(
     "AIChat Device 管理",
     `<h1>AIChat Device 管理</h1>
      <p class="sub">ここでの設定が据え置きデバイスに適用されます。デバイス側からは変更できません。</p>
+     <!-- **すべての端末の履歴。** チャット画面の「履歴」はその端末のぶんしか
+          出さないので、家じゅうを見返す入口はここだけ。画面は作り直さず、
+          既存の履歴の画面に ?all=1 で入る（同じものを2つ持たない）。 -->
+     <p class="sub"><a href="/history?all=1">すべての端末の履歴を見る →</a></p>
      ${bannerHtml}
      <form method="post" action="/admin/config">
        <div class="card">
