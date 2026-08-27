@@ -13,7 +13,7 @@
      │  POST /api/stt   ─▶ 書き起こし
      │  POST /api/chat  ─▶ 回答（SSE で逐次）
      │  文ごとに読み上げ ─▶ POST /api/tts
-     ▼  すべて同一オリジン http://127.0.0.1:8080
+     ▼  すべて同一オリジン https://aichat.local:9800
 [ローカルサーバー]  device/server   Node + Hono
      画面の配信・管理UI・AI の呼び出し。**鍵を持つのはここだけ**
      ▼
@@ -48,7 +48,7 @@ cd device/server && npm ci && cp .env.example .env && npm start
 
 # 画面。別のターミナルで
 cd device/web && npm ci && npm run dev
-#    → http://127.0.0.1:5173 を Chrome で開く（127.0.0.1 でないとマイクが使えない）
+#    → https://aichat.local:9800 を Chrome で開く（127.0.0.1 でないとマイクが使えない）
 ```
 
 ### モード
@@ -69,8 +69,8 @@ cd device/web && npm ci && npm run dev
 `/admin` は 127.0.0.1 でしか開けない。手元の機械から開きたいときは SSH のポート転送。
 
 ```bash
-ssh -L 8080:127.0.0.1:8080 pi@raspberrypi.local
-# → http://127.0.0.1:8080/admin
+ssh -L 9800:127.0.0.1:9800 pi@raspberrypi.local
+# → https://aichat.local:9800/admin
 ```
 
 ### 鍵

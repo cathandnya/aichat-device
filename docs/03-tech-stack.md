@@ -9,7 +9,7 @@
       │  POST /api/chat  (SSE)    ─▶ delta / sources / done / error
       │  文分割 ─▶ POST /api/tts  ─▶ WebAudio で再生
       │  GET  /api/config         ─▶ 「いま Haiku 4.5」の表示
-      ▼  すべて同一オリジン http://127.0.0.1:8080
+      ▼  すべて同一オリジン https://aichat.local:9800
 [ローカルサーバー]  device/server   Node + Hono
   画面の配信・管理UI・AI の呼び出し。**鍵を持つのはここだけ**
       ▼
@@ -300,7 +300,7 @@ MVP は画面タップ / スペースキー。先に体験の骨格（先読み�
 
 ```bash
 cd device/server && npm start          # 既定は stub（AI を呼ばない）
-cd device/web    && npm run dev        # http://127.0.0.1:5173
+cd device/web    && npm run dev        # https://aichat.local:9800
 ```
 
 `127.0.0.1` で開くこと。LAN の IP ではマイクが使えない。

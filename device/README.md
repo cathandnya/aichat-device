@@ -8,6 +8,21 @@ device/
 └── web/      画面（Vite + 素の TypeScript）。マイク・無音検出・読み上げもここ
 ```
 
+## URL
+
+**画面も管理画面も同じホスト・同じポート**で開く。
+
+| | URL |
+|---|---|
+| 話しかける画面 | `https://aichat.local:9800` |
+| 管理画面 | `https://aichat.local:9800/admin` |
+
+ローカルサーバー（9801）は 127.0.0.1 でしか待ち受けず、外からは届かない。
+外の端末は Vite（9800）経由でのみ `/api` と `/admin` に届く。
+
+> **`/admin` に鍵をかけていないので、LAN に開くと誰でも設定を変えられる。**
+> 気になるなら `.env` の `ADMIN_PASSWORD` を設定する。
+
 ## 動かす
 
 ```bash
@@ -18,7 +33,7 @@ cd server && npm ci && cp .env.example .env && npm start
 cd web && npm ci && npm run dev
 ```
 
-**`http://127.0.0.1:5173` で開くこと。** `getUserMedia` は secure context でしか
+**`https://aichat.local:9800` で開くこと。** `getUserMedia` は secure context でしか
 動かず、HTTP で secure context 扱いになるのは「ホスト名が `localhost` /
 `*.localhost`」か「ループバックの **IP リテラル**（`127.0.0.1` / `::1`）」のときだけ。
 
@@ -32,7 +47,7 @@ iPad やスマホ、隣の機械から開きたいときは **HTTPS が要る**�
 
 ```bash
 cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
-# → 他の端末で https://aichat.local:5173 を開く
+# → 他の端末で https://aichat.local:9800 を開く
 ```
 
 自己署名の証明書なので初回は警告が出る。「詳細 → このまま進む」で通せば、
@@ -47,8 +62,8 @@ cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
 > 外に出したくないなら SSH のポート転送を使う（マイクも使える）。
 >
 > ```bash
-> ssh -L 5173:127.0.0.1:5173 -L 8080:127.0.0.1:8080 pi@aichat.local
-> # → 手元で http://127.0.0.1:5173
+> ssh -L 9800:127.0.0.1:9800 pi@aichat.local
+> # → 手元で https://aichat.local:9800
 > ```
 
 読み上げには VOICEVOX が要る。
@@ -124,7 +139,7 @@ docker run -d --name voicevox -p 50021:50021 --restart unless-stopped \
 cd server && AICHAT_MODE=live npm start
 
 # 4. 画面
-cd web && npm run dev      # → http://127.0.0.1:5173
+cd web && npm run dev      # → https://aichat.local:9800
 ```
 
 起動時に**設定と鍵の食い違いを警告する**。たとえば「設定は claude だが
@@ -147,13 +162,13 @@ cd web && npm run dev      # → http://127.0.0.1:5173
 
 ## 設定を変える
 
-`/admin`（`http://127.0.0.1:8080/admin`）から。モデル・システムプロンプト・
+`/admin`（`https://aichat.local:9800/admin`）から。モデル・システムプロンプト・
 回答の長さ・音声認識モデルを決める。画面側に設定は無い。
 
 127.0.0.1 でしか開けないので、手元の機械から開きたいときは SSH のポート転送。
 
 ```bash
-ssh -L 8080:127.0.0.1:8080 pi@raspberrypi.local
+ssh -L 9800:127.0.0.1:9800 pi@raspberrypi.local
 ```
 
 ## Pi へ持っていく

@@ -25,28 +25,40 @@ import { defineConfig } from "vite";
 // 外に出すかどうか。既定は出さない。
 const exposed = process.env.VITE_EXPOSE === "1";
 
+/** ローカルサーバー（127.0.0.1）への中継。SSE を途中でまとめさせない。 */
+function proxyToServer() {
+  return {
+    target: "http://127.0.0.1:9801",
+    changeOrigin: false,
+    configure: (proxy: { on: (event: "proxyRes", handler: (res: { headers: Record<string, string | string[] | undefined> }) => void) => void }) => {
+      proxy.on("proxyRes", (proxyRes) => {
+        proxyRes.headers["cache-control"] = "no-cache, no-transform";
+      });
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
   plugins: exposed ? [basicSsl()] : [],
   server: {
     host: exposed ? "0.0.0.0" : "127.0.0.1",
-    port: 5173,
+    // 既定の 5173 や 8080 は他のものと当たりやすいので、静かな帯に置く。
+    port: 9800,
     // `aichat.local` のような mDNS 名で開けるようにする。
     // Vite は既定で知らない Host ヘッダを弾く。
     ...(exposed ? { allowedHosts: true as const } : {}),
+    // `/api` と `/admin` の両方を中継する。
+    //
+    // こうすると **画面も管理画面も同じ URL（同じホスト・同じポート）** に
+    // なる。分かれていると「管理画面が開かない」と迷いやすく、実際に
+    // `/admin` が SPA のフォールバックに吸われてチャット画面が出ていた。
+    //
+    // ローカルサーバー自体は 127.0.0.1 のままにして外に出さない。
+    // 外の端末からは Vite 経由でしか届かない。
     proxy: {
-      "/api": {
-        // ローカルサーバーは外に出さない。ここから 127.0.0.1 に繋ぐので、
-        // 外の端末からは Vite 経由でしか届かない。
-        target: "http://127.0.0.1:8080",
-        changeOrigin: false,
-        // SSE を途中でまとめられないように。
-        configure: (proxy) => {
-          proxy.on("proxyRes", (proxyRes) => {
-            proxyRes.headers["cache-control"] = "no-cache, no-transform";
-          });
-        },
-      },
+      "/api": proxyToServer(),
+      "/admin": proxyToServer(),
     },
   },
   build: {
