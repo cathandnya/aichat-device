@@ -11,13 +11,21 @@
          離れて見るものなので文字は大きめ、配色は常に暗い（夜のテーブルで
          白背景は眩しい）。 -->
     <main id="app">
+      <!-- 履歴。据え置きの画面では邪魔なので畳める。 -->
+      <aside id="chats" class="chats">
+        <button id="new-chat" class="new-chat" type="button">＋ 新しいチャット</button>
+        <ul id="chat-list" class="chat-list"></ul>
+      </aside>
+
       <header class="bar">
+        <button id="toggle-chats" class="toggle-chats" type="button" aria-label="履歴">☰</button>
         <div id="clock" class="clock">--:--</div>
         <div id="badge" class="badge" hidden></div>
       </header>
 
       <section id="stage" class="stage" data-state="idle">
         <div id="status" class="status">話しかけてください</div>
+        <div id="transcript" class="transcript"></div>
         <div id="level" class="level"><span id="level-bar"></span></div>
         <p id="question" class="question" hidden></p>
         <p id="answer" class="answer"></p>

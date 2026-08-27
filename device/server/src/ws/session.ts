@@ -8,14 +8,45 @@
  *   listening 聞き取り中
  *   thinking  考え中（音声認識 → 最初の delta まで）
  *   speaking  回答中。文ができた端から読み上げを送る
+ *   following 追い質問の窓。ウェイクワード無しで続けられる
  *   error     失敗。数秒で idle に戻る
+ *
+ * ### チャットの終わり方
+ *
+ * **ウェイクワード＝新しいチャット、それ以外は続き。**利用者から見て
+ * 規則が1つで済むよう、「受付の終了」と「文脈の終了」を一致させている。
+ *
+ *   ウェイクワード       → いまのチャットを閉じ、新規に始める
+ *   読み上げが終わる     → 追い質問の窓を開く（既定 8 秒）
+ *   窓の間に話しかける   → 同じチャットの続き。窓を開き直す
+ *   窓が無言で閉じる     → チャット終了
+ *   終了語／上限／エラー → チャット終了
  */
 
 import { handleChat } from "../ai/chat.ts";
 import { transcribe } from "../ai/stt.ts";
-import { WAKE_HOP_SEC, WAKE_WINDOW_SEC, detectWake } from "../ai/wake.ts";
+import {
+  WAKE_HOP_SEC,
+  WAKE_WINDOW_SEC,
+  detectWake,
+  matchesWake,
+} from "../ai/wake.ts";
+import {
+  appendTurn,
+  createChat,
+  endChat,
+  messagesOf,
+  reachedLimit,
+  readChat,
+} from "../chats/store.ts";
 import { Endpointer, NoiseFloor } from "../audio/endpoint.ts";
-import { FRAME_MS, MAX_UTTERANCE_SEC, SAMPLE_RATE, encodeWav } from "../audio/format.ts";
+import {
+  FRAME_MS,
+  MAX_UTTERANCE_SEC,
+  SAMPLE_RATE,
+  encodeWav,
+  rms,
+} from "../audio/format.ts";
 import { RingBuffer } from "../audio/ring.ts";
 import { runtimeFrom, type Config } from "../config.ts";
 import { SentenceSplitter } from "../speech/sentences.ts";
@@ -28,9 +59,13 @@ import type { DeviceState, ServerMessage, Source } from "./protocol.ts";
 /** 輪に溜めておく長さ。判定の窓より長ければよい。 */
 const RING_SEC = 8;
 
-/** 会話の持ち越し。家族共用なので短く。 */
-const HISTORY_TURNS = 6;
-const HISTORY_TTL_MS = 5 * 60_000;
+/**
+ * 追い質問のときに遡る長さ。
+ *
+ * ウェイクワードを含める必要がないので短くてよい。語頭が切れない
+ * ぎりぎりを狙う。長くすると前の発話の尻尾まで質問に混ざる。
+ */
+const FOLLOW_UP_PREROLL_SEC = 0.4;
 
 /** エラー表示から待機に戻るまで。 */
 const ERROR_RESET_MS = 6_000;
@@ -58,8 +93,10 @@ export class Session {
   private abort: AbortController | null = null;
   private errorTimer: NodeJS.Timeout | null = null;
 
-  private history: { role: string; content: string }[] = [];
-  private historyAt = 0;
+  /** いま開いているチャット。無ければ待機中。 */
+  private chatId: string | null = null;
+  /** 追い質問の窓を閉じるための時計。 */
+  private followTimer: NodeJS.Timeout | null = null;
 
   private readonly config: Config;
   private readonly io: SessionIO;
@@ -84,6 +121,14 @@ export class Session {
         this.tickWake();
         break;
 
+      case "following":
+        // 窓が開いている間は**ウェイクワードを判定しない。**
+        // 代わりに声がしたかだけを見て、したら同じチャットの続きに入る。
+        // ここでウェイクワードも回すと、判定が二重になって遅くなる。
+        if (rms(frame) > this.noise.current * 3) this.continueListening();
+        else this.noise.update(frame);
+        break;
+
       case "listening":
         this.utterance.push(frame);
         this.onListening(frame);
@@ -100,23 +145,19 @@ export class Session {
 
   /** 画面を触った / 物理ボタン。ウェイクワード無しで起こす。 */
   onWakeRequest(): void {
-    if (this.state === "idle" || this.state === "error") this.beginListening();
+    if (this.state === "thinking" || this.state === "speaking") return;
+    this.startChat();
   }
 
-  /** やめる。 */
+  /** やめる。開いているチャットも閉じる。 */
   onCancel(): void {
-    this.abort?.abort();
-    this.abort = null;
-    this.speech?.cancel();
-    this.speech = null;
-    this.utterance = [];
-    this.endpointer = null;
+    this.closeChat("manual");
     this.setState("idle", "話しかけてください");
   }
 
   dispose(): void {
     if (this.errorTimer) clearTimeout(this.errorTimer);
-    this.onCancel();
+    this.closeChat("manual");
   }
 
   // --- 待機中 ---
@@ -142,7 +183,7 @@ export class Session {
       .then(({ fired }) => {
         // 判定の間に状態が変わっていることがある。
         if (fired && (this.state === "idle" || this.state === "error")) {
-          this.beginListening();
+          this.startChat();
         }
       })
       .finally(() => {
@@ -152,17 +193,88 @@ export class Session {
 
   // --- 聞き取り中 ---
 
-  private beginListening(): void {
+  /** ウェイクワード／ボタン。いまのチャットを閉じて新規に始める。 */
+  private startChat(): void {
+    this.closeChat("wake");
+
+    const chat = createChat("device");
+    this.chatId = chat.id;
+    this.io.send({ type: "chat", chatId: chat.id, title: chat.title });
+
+    this.beginListening();
+  }
+
+  /** 追い質問。同じチャットのまま聞き取りに入る。 */
+  private continueListening(): void {
+    this.clearFollowTimer();
+    // **遡る量を短くする。** ウェイクワードを含める必要がなく、
+    // 長く遡ると前の発話の尻尾まで拾ってしまう
+    // （実際に「の天気は駅までの行き方は」という質問文になった）。
+    this.beginListening(FOLLOW_UP_PREROLL_SEC);
+  }
+
+  /**
+   * 聞き取りに入る。`prerollSec` は輪から遡る長さ。
+   *
+   * **語頭は輪から遡って取る。**デバイスは何も覚えていない。
+   * ウェイクワードで始めるときは、その発話ごと拾って書き起こしてから
+   * 文字で落とす（切り出しの位置に頼るより確実）。
+   */
+  private beginListening(prerollSec = WAKE_WINDOW_SEC): void {
     if (this.errorTimer) clearTimeout(this.errorTimer);
+    this.clearFollowTimer();
     this.abort = new AbortController();
     this.endpointer = new Endpointer(this.noise.current);
 
-    // **語頭は輪から遡って取る。**デバイスは何も覚えていない。
-    // ウェイクワードの発話そのものも含まれるが、書き起こしてから
-    // 落とすほうが、切り出しの精度に頼るより確実。
-    this.utterance = [this.ring.last(WAKE_WINDOW_SEC)];
+    this.utterance = [this.ring.last(prerollSec)];
 
     this.setState("listening", "聞いています");
+  }
+
+  /**
+   * 追い質問の窓を開く。無言で閉じたらチャットも終わる。
+   *
+   * 設定が 0 なら開かない（毎回ウェイクワードが要る）。
+   * 窓の間は部屋の話し声を拾って AI に投げてしまうので、
+   * 誤爆が気になる家庭が止められるようにしてある。
+   */
+  private openFollowUp(): void {
+    const seconds = readConfig().followUpSec;
+    if (seconds <= 0 || !this.chatId) {
+      this.closeChat("timeout");
+      this.setState("idle", "話しかけてください");
+      return;
+    }
+
+    this.setState("following", "続けてどうぞ");
+    this.clearFollowTimer();
+    this.followTimer = setTimeout(() => {
+      this.followTimer = null;
+      if (this.state !== "following") return;
+      this.closeChat("timeout");
+      this.setState("idle", "話しかけてください");
+    }, seconds * 1000);
+  }
+
+  private clearFollowTimer(): void {
+    if (this.followTimer) clearTimeout(this.followTimer);
+    this.followTimer = null;
+  }
+
+  /** 開いているチャットを閉じる。開いていなければ何もしない。 */
+  private closeChat(reason: import("../chats/types.ts").ChatEndReason): void {
+    this.abort?.abort();
+    this.abort = null;
+    this.speech?.cancel();
+    this.speech = null;
+    this.utterance = [];
+    this.endpointer = null;
+    this.clearFollowTimer();
+
+    if (this.chatId) {
+      endChat(this.chatId, reason);
+      this.chatId = null;
+    }
   }
 
   private onListening(frame: Int16Array): void {
@@ -190,6 +302,7 @@ export class Session {
     this.setState("thinking", "聞き取っています");
 
     let question: string;
+    let raw = "";
     try {
       const saved = readConfig();
       const wav = encodeWav(pcm.subarray(0, MAX_UTTERANCE_SEC * SAMPLE_RATE));
@@ -201,6 +314,7 @@ export class Session {
           controller.signal,
         )
       ).trim();
+      raw = question;
       question = stripWake(question, saved.wakeWords);
     } catch (error) {
       this.fail(error instanceof Error ? error.message : "音声を認識できませんでした。");
@@ -208,6 +322,23 @@ export class Session {
     }
 
     if (controller.signal.aborted) return;
+
+    const saved = readConfig();
+
+    // **終了語。**AI を呼ばずにここで終える。
+    if (question && matchesWake(question, saved.endPhrases)) {
+      this.closeChat("phrase");
+      this.setState("idle", "話しかけてください");
+      return;
+    }
+
+    // **窓の中でウェイクワードを言われたら仕切り直す。**
+    // ここで拾わないと「ずんだもん」だけが質問として送られて空になる。
+    if (raw && matchesWake(raw, saved.wakeWords) && !question) {
+      this.startChat();
+      return;
+    }
+
     if (!question) {
       this.fail("聞き取れませんでした。もう一度どうぞ。");
       return;
@@ -220,7 +351,28 @@ export class Session {
   }
 
   private async generate(question: string, controller: AbortController): Promise<void> {
-    const messages = [...this.validHistory(), { role: "user", content: question }];
+    if (!this.chatId) return;
+
+    // 上限に達していたらそこで閉じ、新しいチャットとして続ける。
+    // 長い文脈は課金が増え、回答の精度も落ちる。
+    const current = readChat(this.chatId);
+    if (current && reachedLimit(current)) {
+      endChat(this.chatId, "limit");
+      const fresh = createChat("device");
+      this.chatId = fresh.id;
+      this.io.send({ type: "chat", chatId: fresh.id, title: fresh.title });
+    }
+
+    const chatId = this.chatId;
+    const asked = appendTurn(chatId, {
+      role: "user",
+      content: question,
+      at: new Date().toISOString(),
+    });
+    if (asked) {
+      this.io.send({ type: "chat", chatId, title: asked.title });
+    }
+    const messages = messagesOf(asked ?? { turns: [] } as never);
 
     this.speech = new SpeechQueue(
       (text) => synthesize(text, this.config, controller.signal),
@@ -228,6 +380,7 @@ export class Session {
     );
 
     const splitter = new SentenceSplitter();
+    const collectedSources: Source[] = [];
     let answer = "";
     let failed = false;
 
@@ -273,6 +426,7 @@ export class Session {
             }
           }
           if (event.sources?.length) {
+            collectedSources.push(...event.sources);
             this.io.send({ type: "sources", sources: event.sources });
           }
           if (event.stopReason === "empty" && !answer) {
@@ -296,12 +450,12 @@ export class Session {
     for (const sentence of splitter.flush()) this.speech?.enqueue(sentence);
 
     if (answer) {
-      this.history = [
-        ...this.validHistory(),
-        { role: "user", content: question },
-        { role: "assistant", content: answer },
-      ].slice(-HISTORY_TURNS);
-      this.historyAt = Date.now();
+      appendTurn(chatId, {
+        role: "assistant",
+        content: answer,
+        at: new Date().toISOString(),
+        ...(collectedSources.length ? { sources: collectedSources } : {}),
+      });
     }
 
     await this.speech?.drain();
@@ -309,21 +463,13 @@ export class Session {
 
     this.speech = null;
     this.abort = null;
-    this.setState("idle", "話しかけてください");
+
+    // **読み上げが終わってから窓を開く。**鳴っている間に開くと
+    // 自分の声を拾う（エコーキャンセルを持たないため）。
+    this.openFollowUp();
   }
 
   // --- 補助 ---
-
-  /**
-   * 持ち越してよい会話だけ返す。
-   *
-   * 家族で共用するので、前の人の話が次の人に引き継がれないよう
-   * 短い時間で捨てる。
-   */
-  private validHistory(): { role: string; content: string }[] {
-    if (Date.now() - this.historyAt > HISTORY_TTL_MS) this.history = [];
-    return this.history;
-  }
 
   private setState(state: DeviceState, status: string): void {
     this.state = state;
@@ -341,11 +487,8 @@ export class Session {
   }
 
   private fail(message: string): void {
-    this.speech?.cancel();
-    this.speech = null;
-    this.abort = null;
-    this.utterance = [];
-    this.endpointer = null;
+    // 失敗したまま続きを聞かれても噛み合わないので、チャットも閉じる。
+    this.closeChat("error");
 
     this.setState("error", "うまくいきませんでした");
     this.io.send({ type: "error", message });

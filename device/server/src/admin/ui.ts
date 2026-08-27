@@ -27,6 +27,8 @@ import {
   ANSWER_LENGTH_LABELS,
   THINKING_LEVELS,
   THINKING_LEVEL_LABELS,
+  MAX_END_PHRASES,
+  MAX_FOLLOW_UP_SEC,
   MAX_WAKE_WORDS,
   SPEECH_SPEEDS,
   STT_MODELS,
@@ -340,6 +342,31 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
+           <legend>追い質問</legend>
+           <label class="radio" style="display:block">
+             <input type="number" name="followUpSec" min="0" max="${MAX_FOLLOW_UP_SEC}"
+               value="${config.followUpSec}" style="width:5rem"> 秒
+           </label>
+           <p class="hint">
+             回答のあと、この秒数はウェイクワード無しで続けて話せます。
+             <strong>0 にすると毎回ウェイクワードが要ります。</strong>
+             窓が開いている間は部屋の話し声を拾って AI に投げてしまうので、
+             誤って反応するのが気になるときは 0 にしてください。
+           </p>
+         </fieldset>
+
+         <fieldset>
+           <legend>会話を終える語</legend>
+           <textarea name="endPhrases" rows="2"
+             placeholder="ありがとう&#10;おわり">${escapeHtml(config.endPhrases.join("\n"))}</textarea>
+           <p class="hint">
+             1行に1つ、${MAX_END_PHRASES}個まで。これが聞こえたら会話を終えます。
+             空にもできます。<strong>「ありがとう」は会話の途中にも出る</strong>ので、
+             意図せず終わるようなら減らしてください。
+           </p>
+         </fieldset>
+
+         <fieldset>
            <legend>読み上げの速さ</legend>
            <select name="speechSpeed">${speedOptions}</select>
            <p class="hint">声の高さは変えずに話す速さだけを変えます（VOICEVOX の speedScale）。据え置きのデバイスは待たされる感じが出やすいので、既定より速めにしてあります。</p>
@@ -458,6 +485,8 @@ export async function handleAdminConfigUpdate(
       sttModel: form.get("sttModel") ?? undefined,
       speechSpeed: form.get("speechSpeed") ?? undefined,
       wakeWords: form.get("wakeWords") ?? undefined,
+      followUpSec: form.get("followUpSec") ?? undefined,
+      endPhrases: form.get("endPhrases") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,
       answerLength: form.get("answerLength") ?? undefined,
     },

@@ -14,6 +14,7 @@ export interface Source {
 
 /** 生成中に届くもの。 */
 export type ChatEvent =
+  | { type: "chat"; chatId: string }
   | { type: "delta"; text: string }
   | { type: "sources"; sources: Source[] }
   | { type: "done"; stopReason: string }
@@ -64,15 +65,17 @@ class LineParser {
  * ので、見ない回答に課金され続けることはない（device/server 側の仕掛け）。
  */
 export async function* streamChat(
-  messages: { role: string; content: string }[],
-  options: { signal?: AbortSignal; scenario?: string } = {},
+  content: string,
+  options: { chatId?: string | null; signal?: AbortSignal; scenario?: string } = {},
 ): AsyncGenerator<ChatEvent> {
   const query = options.scenario ? `?scenario=${options.scenario}` : "";
 
+  // **会話の履歴はサーバーが持つ。** ここで組み立てない。
+  // 以前はサーバー側と画面側の両方に「直近N往復・TTL」の同じ処理があった。
   const response = await fetch(`/api/chat${query}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ chatId: options.chatId ?? undefined, content }),
     signal: options.signal,
   });
 
@@ -82,6 +85,10 @@ export async function* streamChat(
     yield { type: "error", message: "サーバーに接続できませんでした。" };
     return;
   }
+
+  // どのチャットに入ったかを最初に知らせる。
+  const chatId = response.headers.get("X-AIChatDevice-Chat-Id");
+  if (chatId) yield { type: "chat", chatId };
 
   const reader = response.body.getReader();
   const parser = new LineParser();
@@ -194,4 +201,70 @@ export async function fetchHealth(): Promise<{ mode: string; tts: string } | nul
   } catch {
     return null;
   }
+}
+
+// --- チャットの履歴 ---
+
+export interface ChatSummary {
+  id: string;
+  startedAt: string;
+  updatedAt: string;
+  origin: "device" | "web";
+  title: string;
+  endedBy: string | null;
+  turns: number;
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+  at: string;
+  sources?: Source[];
+}
+
+export interface Chat extends ChatSummary {
+  turns: never;
+}
+
+/** 一覧。新しい順。取れなければ空。 */
+export async function fetchChats(): Promise<ChatSummary[]> {
+  try {
+    const response = await fetch("/api/chats");
+    if (!response.ok) return [];
+    return ((await response.json()) as { chats: ChatSummary[] }).chats;
+  } catch {
+    return [];
+  }
+}
+
+/** 1件の全文。 */
+export async function fetchChat(
+  id: string,
+): Promise<{ id: string; title: string; turns: ChatTurn[] } | null> {
+  try {
+    const response = await fetch(`/api/chats/${encodeURIComponent(id)}`);
+    if (!response.ok) return null;
+    return (await response.json()) as never;
+  } catch {
+    return null;
+  }
+}
+
+/** 消す。 */
+export async function deleteChat(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/chats/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** 開いているチャットを閉じる（仕切り直し）。 */
+export async function endChat(id: string): Promise<void> {
+  await fetch(`/api/chats/${encodeURIComponent(id)}/end`, { method: "POST" }).catch(
+    () => {},
+  );
 }

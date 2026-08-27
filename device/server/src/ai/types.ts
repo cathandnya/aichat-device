@@ -306,6 +306,10 @@ export interface AppConfig {
    * 詳しくは docs/06。
    */
   wakeWords: string[];
+  /** 追い質問を受け付ける秒数。0 なら毎回ウェイクワードが要る。 */
+  followUpSec: number;
+  /** これが聞こえたら会話を終える。空でもよい。 */
+  endPhrases: string[];
   systemPrompt: string;
   /**
    * 回答の長さ。必要なトークン数は思考レベルと併せて自動で決まる
@@ -363,6 +367,38 @@ export function isWakeWords(value: unknown): value is string[] {
   );
 }
 
+/**
+ * 追い質問の窓の長さ（秒）。**0 なら毎回ウェイクワードが要る。**
+ *
+ * 窓が開いている間は部屋の話し声を拾って AI に投げてしまう。これは課金に
+ * 直結するので、0 にして止められる逃げ道を残してある。
+ * 8 秒は Alexa（約5秒）と Google（約8秒）の相場から。
+ */
+export const MAX_FOLLOW_UP_SEC = 30;
+
+export function isFollowUpSec(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_FOLLOW_UP_SEC
+  );
+}
+
+/**
+ * 会話を終える語。ウェイクワードと同じ仕組み（文字列一致）で判定する。
+ *
+ * 空にもできる。「ありがとう」は会話の途中にも出るので、
+ * 誤って終わるのが気になるなら消せるようにしてある。
+ */
+export const MAX_END_PHRASES = 8;
+
+export function isEndPhrases(value: unknown): value is string[] {
+  if (!Array.isArray(value)) return false;
+  if (value.length > MAX_END_PHRASES) return false;
+  return value.every((v) => typeof v === "string" && v.trim().length >= 2);
+}
+
 export const SYSTEM_PROMPT_MAX_LENGTH = 8000;
 
 /** KV に値が無い初回に使う既定値。 */
@@ -380,6 +416,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   // 実測で一番成績が良かった組み合わせ（docs/06）。
   // 「すんだもん」は濁点が落ちた聞こえ方。足しても誤起動は増えなかった。
   wakeWords: ["ずんだもん", "すんだもん"],
+  followUpSec: 8,
+  endPhrases: ["ありがとう", "おわり", "もういい", "またね"],
   systemPrompt: "",
   answerLength: "standard",
   updatedAt: "1970-01-01T00:00:00.000Z",

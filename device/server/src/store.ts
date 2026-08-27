@@ -10,9 +10,7 @@
  * デバイスが黙るので、ここは丁寧にやる価値がある）。
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dataPath, readJsonSafe, writeJsonAtomic } from "./data.ts";
 
 import {
   DEFAULT_CONFIG,
@@ -23,7 +21,11 @@ import {
   isModelId,
   isSpeechSpeed,
   isSttModel,
+  isEndPhrases,
+  isFollowUpSec,
   isWakeWords,
+  MAX_END_PHRASES,
+  MAX_FOLLOW_UP_SEC,
   MAX_WAKE_WORDS,
   WAKE_WORD_MAX_LENGTH,
   WAKE_WORD_MIN_LENGTH,
@@ -31,11 +33,7 @@ import {
   type AppConfig,
 } from "./ai/types.ts";
 
-/** device/server/src → device/server/data */
-const DATA_DIR =
-  process.env.AICHAT_DATA_DIR ??
-  join(dirname(fileURLToPath(import.meta.url)), "..", "data");
-const CONFIG_PATH = join(DATA_DIR, "config.json");
+const CONFIG_PATH = dataPath("config.json");
 
 /**
  * 設定を読む。ファイルが無い／壊れている場合は既定値を返す。
@@ -47,16 +45,7 @@ const CONFIG_PATH = join(DATA_DIR, "config.json");
  * 1回だけだから。非同期にしても得るものが無い。
  */
 export function readConfig(): AppConfig {
-  let stored: unknown;
-  try {
-    stored = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
-  } catch (error) {
-    // 初回はファイルが無い。それは異常ではないので黙って既定値にする。
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("設定を読めませんでした。既定値を使います。", error);
-    }
-    return { ...DEFAULT_CONFIG };
-  }
+  const stored = readJsonSafe(CONFIG_PATH);
 
   if (!stored || typeof stored !== "object") return { ...DEFAULT_CONFIG };
 
@@ -87,6 +76,12 @@ export function readConfig(): AppConfig {
     wakeWords: isWakeWords(raw.wakeWords)
       ? raw.wakeWords
       : [...DEFAULT_CONFIG.wakeWords],
+    followUpSec: isFollowUpSec(raw.followUpSec)
+      ? raw.followUpSec
+      : DEFAULT_CONFIG.followUpSec,
+    endPhrases: isEndPhrases(raw.endPhrases)
+      ? raw.endPhrases
+      : [...DEFAULT_CONFIG.endPhrases],
     systemPrompt:
       typeof raw.systemPrompt === "string"
         ? raw.systemPrompt
@@ -107,6 +102,8 @@ export interface ConfigPatch {
   sttModel?: unknown;
   speechSpeed?: unknown;
   wakeWords?: unknown;
+  followUpSec?: unknown;
+  endPhrases?: unknown;
   systemPrompt?: unknown;
   answerLength?: unknown;
 }
@@ -211,6 +208,34 @@ export function validatePatch(
     }
   }
 
+  let followUpSec = current.followUpSec;
+  if (patch.followUpSec !== undefined) {
+    const parsed = Number(patch.followUpSec);
+    if (isFollowUpSec(parsed)) {
+      followUpSec = parsed;
+    } else {
+      errors.push(`追い質問の秒数の値が不正です（0〜${MAX_FOLLOW_UP_SEC} の整数）。`);
+    }
+  }
+
+  let endPhrases = current.endPhrases;
+  if (patch.endPhrases !== undefined) {
+    // 管理UI からは改行区切りの文字列で来る。空にもできる。
+    const list =
+      typeof patch.endPhrases === "string"
+        ? patch.endPhrases
+            .split(/[\n,、]/)
+            .map((w) => w.trim())
+            .filter((w) => w.length > 0)
+        : patch.endPhrases;
+
+    if (isEndPhrases(list)) {
+      endPhrases = list.map((w) => w.trim());
+    } else {
+      errors.push(`終了語の値が不正です（2文字以上を ${MAX_END_PHRASES} 個まで）。`);
+    }
+  }
+
   let sttModel = current.sttModel;
   if (patch.sttModel !== undefined) {
     if (isSttModel(patch.sttModel)) {
@@ -258,6 +283,8 @@ export function validatePatch(
       sttModel,
       speechSpeed,
       wakeWords,
+      followUpSec,
+      endPhrases,
       systemPrompt,
       answerLength,
       updatedAt: new Date().toISOString(),
@@ -273,13 +300,5 @@ export function validatePatch(
  * 残り、壊れた JSON にはならない。
  */
 export function writeConfig(config: AppConfig): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-
-  const temp = `${CONFIG_PATH}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`, {
-    encoding: "utf8",
-    // 設定にはシステムプロンプトが入る。他のユーザーには見せない。
-    mode: 0o600,
-  });
-  renameSync(temp, CONFIG_PATH);
+  writeJsonAtomic(CONFIG_PATH, config);
 }

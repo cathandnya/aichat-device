@@ -21,6 +21,13 @@ import {
 } from "./admin/ui.ts";
 import { adminSecretsFrom, runtimeFrom, type Config } from "./config.ts";
 import { handleChat } from "./routes/chat.ts";
+import {
+  handleCreateChat,
+  handleDeleteChat,
+  handleEndChat,
+  handleGetChat,
+  handleListChats,
+} from "./routes/chats.ts";
 import { handleConfig } from "./routes/config.ts";
 import { handleStt } from "./routes/stt.ts";
 import { handleTts } from "./routes/tts.ts";
@@ -62,6 +69,13 @@ export function createApp(config: Config): Hono {
   // 読み上げはスタブにしない。VOICEVOX はローカルで無料なので、
   // 本物を鳴らさないと文の区切り方や間の良し悪しを確かめられない。
   app.post("/api/tts", (c) => handleTts(c, config));
+
+  // チャット履歴。**catch-all より前に置くこと。**
+  app.get("/api/chats", handleListChats);
+  app.post("/api/chats", handleCreateChat);
+  app.get("/api/chats/:id", handleGetChat);
+  app.delete("/api/chats/:id", handleDeleteChat);
+  app.post("/api/chats/:id/end", handleEndChat);
 
   app.all("/api/*", notFound);
 

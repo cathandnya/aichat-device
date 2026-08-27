@@ -38,15 +38,122 @@ body {
   -webkit-user-select: none;
 }
 
+/* 左に履歴、右に本文。履歴は畳める（据え置きの画面では邪魔）。 */
 #app {
   display: grid;
+  grid-template-columns: 16rem 1fr;
   grid-template-rows: auto 1fr auto;
+  grid-template-areas: "chats bar" "chats stage" "chats bottom";
   height: 100%;
   padding: 1.5rem;
-  gap: 1rem;
+  gap: 1rem 1.25rem;
+}
+#app[data-chats="hidden"] {
+  grid-template-columns: 0 1fr;
+  gap: 1rem 0;
+}
+#app[data-chats="hidden"] .chats {
+  display: none;
+}
+
+.chats {
+  grid-area: chats;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+  border-right: 1px solid #232733;
+  padding-right: 1rem;
+}
+
+.new-chat {
+  border: 1px solid #2c3140;
+  background: var(--card);
+  color: var(--fg);
+  border-radius: 10px;
+  padding: 0.7rem;
+  font-family: inherit;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.new-chat:active {
+  transform: scale(0.99);
+}
+
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.chat-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.chat-list button.open {
+  flex: 1;
+  text-align: left;
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-list li[data-current="1"] button.open {
+  background: var(--card);
+  color: var(--fg);
+}
+.chat-list button.remove {
+  border: none;
+  background: none;
+  color: #4d5566;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.3rem;
+}
+.chat-list button.remove:hover {
+  color: var(--danger);
+}
+
+.toggle-chats {
+  border: none;
+  background: none;
+  color: var(--dim);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 0 0.4rem;
+}
+
+/* いままでの往復。いまの質問と回答の上に出す。 */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  color: var(--dim);
+  font-size: 1rem;
+}
+.transcript .u::before {
+  content: "「";
+}
+.transcript .u::after {
+  content: "」";
+}
+.transcript .a {
+  color: #b6bdcc;
 }
 
 .bar {
+  grid-area: bar;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -70,6 +177,7 @@ body {
 }
 
 .stage {
+  grid-area: stage;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -87,6 +195,10 @@ body {
 }
 .stage[data-state="error"] .status {
   color: var(--danger);
+}
+/* 追い質問の窓。黙って聞いている状態を作らない。 */
+.stage[data-state="following"] .status {
+  color: #6ee7a8;
 }
 
 /* 音量の目安。聞こえているかが一目で分かる。 */
@@ -160,6 +272,7 @@ body {
 }
 
 .bottom {
+  grid-area: bottom;
   justify-content: space-between;
 }
 

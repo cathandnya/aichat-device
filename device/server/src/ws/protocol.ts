@@ -13,6 +13,13 @@ export type DeviceState =
   | "listening" // 聞き取り中
   | "thinking" // 考え中
   | "speaking" // 回答中
+  /**
+   * 追い質問の窓が開いている。ウェイクワード無しで続けられる。
+   *
+   * **黙って聞いている状態を作らない。** 画面に「続けてどうぞ」と出す。
+   * 常時マイクが開いている機械なので、聞いていることは見えていないといけない。
+   */
+  | "following"
   | "error";
 
 export interface Source {
@@ -32,7 +39,9 @@ export type ServerMessage =
   /** 次に届くバイナリが読み上げの音声であることの予告。 */
   | { type: "audio"; bytes: number }
   /** 設定の表示用（画面下の「いま Haiku 4.5」）。 */
-  | { type: "config"; provider: string; model: string; wakeWords: string[] };
+  | { type: "config"; provider: string; model: string; wakeWords: string[] }
+  /** どのチャットに入ったか。Web UI が履歴を追えるように。 */
+  | { type: "chat"; chatId: string; title: string };
 
 /** デバイスからサーバーへ送る JSON（音声はバイナリで別に送る）。 */
 export type DeviceMessage =

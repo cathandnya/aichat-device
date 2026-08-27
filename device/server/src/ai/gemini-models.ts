@@ -6,18 +6,11 @@
  * モデルが黙って別物に置き換わるのを避けるため、取得は明示的な操作に限る。
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dataPath, readJsonSafe, writeJsonAtomic } from "../data.ts";
 
 import { isModelId, type GeminiModelCatalog, type GeminiModelInfo, type Runtime } from "./types.ts";
 
-/** device/server/src/ai → device/server/data */
-const CATALOG_PATH = join(
-  process.env.AICHAT_DATA_DIR ??
-    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "data"),
-  "gemini-models.json",
-);
+const CATALOG_PATH = dataPath("gemini-models.json");
 
 const DEFAULT_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -268,16 +261,7 @@ function modelsErrorMessage(status: number): string {
 
 /** 取得済みの一覧を読む。無い／壊れていれば null。 */
 export function readGeminiCatalog(): GeminiModelCatalog | null {
-  let stored: unknown;
-  try {
-    stored = JSON.parse(readFileSync(CATALOG_PATH, "utf8"));
-  } catch (error) {
-    // 一度も取得していなければファイルが無い。これは異常ではない。
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("モデル一覧を読めませんでした", error);
-    }
-    return null;
-  }
+  const stored = readJsonSafe(CATALOG_PATH);
 
   if (!stored || typeof stored !== "object") return null;
 
@@ -303,11 +287,5 @@ export function readGeminiCatalog(): GeminiModelCatalog | null {
 }
 
 export function writeGeminiCatalog(catalog: GeminiModelCatalog): void {
-  mkdirSync(dirname(CATALOG_PATH), { recursive: true });
-
-  // store.ts と同じく一時ファイル → rename。途中で落ちても
-  // 壊れた JSON が残らないようにする。
-  const temp = `${CATALOG_PATH}.tmp`;
-  writeFileSync(temp, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
-  renameSync(temp, CATALOG_PATH);
+  writeJsonAtomic(CATALOG_PATH, catalog);
 }

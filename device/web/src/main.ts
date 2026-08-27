@@ -12,10 +12,15 @@
  */
 
 import {
+  deleteChat,
+  endChat,
+  fetchChat,
+  fetchChats,
   fetchConfig,
   fetchHealth,
   streamChat,
   transcribe,
+  type ChatSummary,
   type Source,
 } from "./api/client.ts";
 import { MicrophoneError, captureUtterance } from "./audio/capture.ts";
@@ -40,14 +45,21 @@ const el = {
   badge: byId("badge"),
   model: byId("model"),
   talk: byId("talk") as HTMLButtonElement,
+  app: byId("app"),
+  chats: byId("chats"),
+  chatList: byId("chat-list"),
+  newChat: byId("new-chat") as HTMLButtonElement,
+  toggleChats: byId("toggle-chats") as HTMLButtonElement,
+  transcript: byId("transcript"),
 };
 
-/** 会話の持ち越し。家族で共用するので長くは持たない。 */
-const HISTORY_LIMIT = 6;
-const HISTORY_TTL_MS = 5 * 60_000;
-
-let history: { role: string; content: string }[] = [];
-let historyAt = 0;
+/**
+ * いま開いているチャット。
+ *
+ * **会話の履歴はサーバーが持つ。** 以前はここにも「直近N往復・TTL」の
+ * 同じ処理があり、サーバー側と二重になっていた。
+ */
+let chatId: string | null = null;
 
 let state: State = "idle";
 let session: AbortController | null = null;
@@ -60,6 +72,11 @@ async function start(): Promise<void> {
   setInterval(clock, 10_000);
 
   el.talk.addEventListener("click", onTalk);
+  el.newChat.addEventListener("click", () => void onNewChat());
+  el.toggleChats.addEventListener("click", () => {
+    const hidden = el.app.dataset.chats === "hidden";
+    el.app.dataset.chats = hidden ? "shown" : "hidden";
+  });
   document.addEventListener("keydown", (event) => {
     if (event.code !== "Space" || event.repeat) return;
     event.preventDefault();
@@ -79,6 +96,8 @@ async function start(): Promise<void> {
   speech.onError = () => {
     if (state === "speaking") el.status.textContent = "回答中（読み上げできません）";
   };
+
+  await refreshChats();
 
   const config = await fetchConfig();
   if (config) {
@@ -193,17 +212,25 @@ async function ask(): Promise<void> {
 }
 
 async function answer(question: string, controller: AbortController): Promise<void> {
-  const messages = [...validHistory(), { role: "user", content: question }];
-
   const splitter = new SentenceSplitter();
   let text = "";
   let failed = false;
 
   try {
-    for await (const event of streamChat(messages, { signal: controller.signal })) {
+    for await (const event of streamChat(question, {
+      chatId,
+      signal: controller.signal,
+    })) {
       if (controller.signal.aborted) return;
 
       switch (event.type) {
+        case "chat":
+          // サーバーが新しく作ったチャットに入ることがある（上限で仕切り直し）。
+          if (chatId !== event.chatId) {
+            chatId = event.chatId;
+            void refreshChats();
+          }
+          break;
         case "delta": {
           if (!text) {
             setState("speaking");
@@ -246,13 +273,10 @@ async function answer(question: string, controller: AbortController): Promise<vo
 
   for (const sentence of splitter.flush()) speech?.enqueue(sentence);
 
+  // いままでの往復を上に積む。次の質問のときに文脈が見えるように。
   if (text) {
-    history = [
-      ...validHistory(),
-      { role: "user", content: question },
-      { role: "assistant", content: text },
-    ].slice(-HISTORY_LIMIT);
-    historyAt = Date.now();
+    appendTranscript(question, text);
+    void refreshChats();
   }
 
   await speech?.drain();
@@ -263,15 +287,106 @@ async function answer(question: string, controller: AbortController): Promise<vo
   session = null;
 }
 
+// --- チャットの履歴 ---
+
+/** 一覧を取り直して描く。 */
+async function refreshChats(): Promise<void> {
+  renderChats(await fetchChats());
+}
+
 /**
- * 持ち越してよい会話だけ返す。
+ * 一覧を描く。
  *
- * 家族で共用する画面なので、前の人の話が次の人に引き継がれないよう
- * 短い時間で捨てる。
+ * `showSources` と同じ流儀で、テンプレート文字列で HTML を組まずに
+ * `createElement` + `textContent` で作る（題名に何が入っていても安全）。
  */
-function validHistory(): { role: string; content: string }[] {
-  if (Date.now() - historyAt > HISTORY_TTL_MS) history = [];
-  return history;
+function renderChats(items: ChatSummary[]): void {
+  const list = document.createElement("ul");
+
+  for (const chat of items) {
+    const li = document.createElement("li");
+    if (chat.id === chatId) li.dataset.current = "1";
+
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "open";
+    // デバイスで話したものが分かるようにしておく。
+    open.textContent = `${chat.origin === "device" ? "🎙 " : ""}${chat.title}`;
+    open.title = `${chat.title}（${chat.turns} 発言）`;
+    open.addEventListener("click", () => void openChat(chat.id));
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "remove";
+    remove.textContent = "×";
+    remove.title = "消す";
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void removeChat(chat.id);
+    });
+
+    li.append(open, remove);
+    list.append(li);
+  }
+
+  el.chatList.replaceChildren(...list.children);
+}
+
+/** 過去のチャットを開く。**続きを話せる**（読むだけにしない）。 */
+async function openChat(id: string): Promise<void> {
+  stop();
+
+  const chat = await fetchChat(id);
+  if (!chat) return;
+
+  chatId = id;
+  reset();
+  el.transcript.replaceChildren();
+
+  for (let i = 0; i < chat.turns.length; i += 2) {
+    const question = chat.turns[i];
+    const answer = chat.turns[i + 1];
+    if (question?.role === "user") {
+      appendTranscript(question.content, answer?.content ?? "");
+    }
+  }
+  el.status.textContent = "続けて話しかけられます";
+  void refreshChats();
+}
+
+async function removeChat(id: string): Promise<void> {
+  if (!(await deleteChat(id))) return;
+  if (chatId === id) {
+    chatId = null;
+    reset();
+    el.transcript.replaceChildren();
+  }
+  void refreshChats();
+}
+
+/** 仕切り直す。いま開いているチャットは閉じる。 */
+async function onNewChat(): Promise<void> {
+  stop();
+  if (chatId) await endChat(chatId);
+
+  chatId = null;
+  reset();
+  el.transcript.replaceChildren();
+  el.status.textContent = "話しかけてください";
+  void refreshChats();
+}
+
+/** 済んだ往復を上に積む。 */
+function appendTranscript(question: string, answer: string): void {
+  const u = document.createElement("div");
+  u.className = "u";
+  u.textContent = question;
+
+  const a = document.createElement("div");
+  a.className = "a";
+  a.textContent = answer;
+
+  el.transcript.append(u, a);
 }
 
 function showSources(sources: Source[]): void {
