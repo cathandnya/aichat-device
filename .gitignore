@@ -12,6 +12,15 @@ device/server/data/
 # STUB_SAVE_AUDIO=1 で保存した録音。中身は家族の声。
 device/server/tmp/
 
+# --- Android（device/android）---
+device/android/.gradle/
+device/android/build/
+device/android/app/build/
+# SDK の場所は機械ごと。追跡しない。
+device/android/local.properties
+# 立ち絵。web と同じく git に入れない。
+device/android/app/src/main/res/drawable/normal.png
+
 # --- macOS ---
 .DS_Store
 
