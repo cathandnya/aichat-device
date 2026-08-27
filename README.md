@@ -61,7 +61,7 @@
 |---|---|
 | [device/server/](device/server/) | ローカルサーバー。画面の配信、AI の呼び出し、音声認識、読み上げ、管理UI |
 | [device/web/](device/web/) | 画面。マイクの取り込みと音の再生。WebSocket 経路では**判断はしない** |
-| [docs/](docs/) | 設計と経緯。[05](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案、[07](docs/07-chat-design.md) のチャット設計、[08](docs/08-emotion.md) の感情表現 |
+| [docs/](docs/) | 設計と経緯。[05](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案、[07](docs/07-chat-design.md) のチャット設計、[08](docs/08-emotion.md) の感情表現、[09](docs/09-echo-spot-jailbreak.md) の Echo Spot の手順 |
 
 ### なぜブラウザから AI を直接叩かないのか
 
