@@ -133,29 +133,23 @@ test("上限を超えると古いものから消える", () => {
   assert.equal(store.listChats(100).length <= limit, true);
 });
 
-test("往復と時間の上限で打ち切る", () => {
-  const startedAt = new Date(2026, 2, 1, 0, 0, 0);
-  const chat = store.createChat("device", startedAt);
+test("暴走した会話だけ打ち切る", () => {
+  // 文脈の長さは messagesOf が絞るので、ここは一覧が遅くならないための
+  // 安全弁でしかない。**時間では打ち切らない**（間があいたかどうかは
+  // findResumable が見る）。以前は「5分で打ち切り」だったため、
+  // 話している最中に会話が別のチャットに切り替わっていた。
+  const chat = store.createChat("device", new Date(2026, 2, 1, 0, 0, 0));
+  assert.equal(store.reachedLimit(chat), false);
 
-  // 始まった直後は、まだどちらの上限にも達していない。
-  assert.equal(store.reachedLimit(chat, startedAt.getTime()), false);
+  const turn = { role: "user" as const, content: "x", at: at() };
+  const fill = (n: number) => ({ ...chat, turns: Array.from({ length: n }, () => turn) });
 
-  const many = {
-    ...chat,
-    turns: Array.from({ length: 20 }, () => ({
-      role: "user" as const,
-      content: "x",
-      at: at(),
-    })),
-  };
+  assert.equal(store.reachedLimit(fill(store.MAX_TURNS * 2)), true, "暴走よけが効いていない");
   assert.equal(
-    store.reachedLimit(many, startedAt.getTime()),
-    true,
-    "往復の上限が効いていない",
+    store.reachedLimit(fill(store.MAX_TURNS * 2 - 1)),
+    false,
+    "上限の手前で打ち切っている",
   );
-
-  const later = startedAt.getTime() + 10 * 60_000;
-  assert.equal(store.reachedLimit(chat, later), true, "時間の上限が効いていない");
 });
 
 // --- 削除・終了 ---
@@ -216,4 +210,110 @@ test("AI に渡す形にできる", () => {
     { role: "user", content: "こんにちは" },
     { role: "assistant", content: "はい" },
   ]);
+});
+
+test("AI に渡すのは直近の往復だけ", () => {
+  // 保存は全部のまま、送る分だけを絞る。会話がいくら続いても送る量が
+  // 一定になるので、課金が会話の長さで膨らまない。
+  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 0));
+  for (let i = 1; i <= 6; i += 1) {
+    store.appendTurn(chat.id, { role: "user", content: `質問${i}`, at: at() });
+    store.appendTurn(chat.id, { role: "assistant", content: `回答${i}`, at: at() });
+  }
+
+  assert.deepEqual(store.messagesOf(store.readChat(chat.id)!, 2), [
+    { role: "user", content: "質問5" },
+    { role: "assistant", content: "回答5" },
+    { role: "user", content: "質問6" },
+    { role: "assistant", content: "回答6" },
+  ]);
+});
+
+test("切り詰めても必ず user から始まる", () => {
+  // ai/chat.ts の parseBody は先頭が user でないと 400 で弾く。
+  // 回答が空だった往復があると発言数の偶奇がずれ、単純に後ろから
+  // N 件取ると assistant から始まってしまう。
+  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 1));
+  const roles = ["user", "assistant", "user", "user", "assistant"] as const;
+  roles.forEach((role, i) => {
+    store.appendTurn(chat.id, { role, content: `発言${i + 1}`, at: at() });
+  });
+
+  assert.deepEqual(
+    store.messagesOf(store.readChat(chat.id)!, 2),
+    [
+      { role: "user", content: "発言3" },
+      { role: "user", content: "発言4" },
+      { role: "assistant", content: "発言5" },
+    ],
+    "assistant から始まると 400 になる",
+  );
+});
+
+test("上限より短い会話はそのまま全部渡す", () => {
+  const chat = store.createChat("web", new Date(2026, 10, 1, 0, 0, 2));
+  store.appendTurn(chat.id, { role: "user", content: "こんにちは", at: at() });
+  store.appendTurn(chat.id, { role: "assistant", content: "はい", at: at() });
+
+  assert.equal(store.messagesOf(store.readChat(chat.id)!, 5).length, 2);
+});
+
+// --- 会話の続き ---
+//
+// ウェイクワードで文脈を捨てていた頃、実際の記録では「今日これから雨降る」の
+// 2.7 分後の「東京なんだけど」が別チャットになり、AI に文脈が渡っていなかった。
+// ここはその回帰を防ぐ。
+//
+// 日付を1日ずつずらすのは、保存先を共有する他のテストと干渉させないため。
+
+const GAP = 10 * 60_000;
+
+/** 1日1件、話したチャットを作る。 */
+function talked(day: number, origin: "device" | "web") {
+  const when = new Date(2026, 11, day, 12, 0, 0);
+  const chat = store.createChat(origin, when);
+  store.appendTurn(chat.id, {
+    role: "user",
+    content: "今日これから雨降る",
+    at: when.toISOString(),
+  });
+  return { id: chat.id, spokeAt: when.getTime() };
+}
+
+test("少し間があいたくらいなら直前の会話を継ぐ", () => {
+  const { id, spokeAt } = talked(1, "device");
+
+  const found = store.findResumable("device", GAP, spokeAt + 3 * 60_000);
+  assert.equal(found?.id, id, "3分後なのに別の会話にされている");
+  assert.equal(found?.turns.length, 1, "継ぐなら中身も要る");
+});
+
+test("間があきすぎたら継がない", () => {
+  const { spokeAt } = talked(2, "device");
+  assert.equal(store.findResumable("device", GAP, spokeAt + 11 * 60_000), null);
+});
+
+test("画面が違えば継がない", () => {
+  // ブラウザで話していた会話をデバイスが引き取るのは驚きが大きい。
+  const { spokeAt } = talked(3, "web");
+  assert.equal(store.findResumable("device", GAP, spokeAt + 60_000), null);
+});
+
+test("暴走上限に達した会話は継がない", () => {
+  const when = new Date(2026, 11, 4, 12, 0, 0);
+  const chat = store.createChat("device", when);
+  for (let i = 0; i < store.MAX_TURNS * 2; i += 1) {
+    store.appendTurn(chat.id, {
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: "x",
+      at: when.toISOString(),
+    });
+  }
+
+  assert.equal(store.findResumable("device", GAP, when.getTime() + 60_000), null);
+});
+
+test("0 分にすれば毎回新しい会話になる", () => {
+  const { spokeAt } = talked(5, "device");
+  assert.equal(store.findResumable("device", 0, spokeAt), null);
 });

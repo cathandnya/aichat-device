@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { Endpointer, NoiseFloor } from "../src/audio/endpoint.ts";
-import { SAMPLE_RATE, encodeWav, rms } from "../src/audio/format.ts";
+import { FRAME_MS, SAMPLE_RATE, encodeWav, rms, wavDurationMs } from "../src/audio/format.ts";
 import { RingBuffer } from "../src/audio/ring.ts";
 
 const FRAME = 1280; // 80ms
@@ -42,6 +42,33 @@ test("波形がそのまま入る", () => {
   assert.equal(wav.readInt16LE(46), 32767);
   assert.equal(wav.readInt16LE(48), -32768);
   assert.equal(wav.readInt16LE(50), 1234);
+});
+
+test("何ミリ秒鳴るか読める", () => {
+  // 追い質問の窓をいつ開くかの根拠。読み違えると窓が短くなる。
+  assert.equal(wavDurationMs(encodeWav(new Int16Array(SAMPLE_RATE))), 1000);
+  assert.equal(wavDurationMs(encodeWav(new Int16Array(SAMPLE_RATE / 2))), 500);
+
+  // VOICEVOX は 24kHz で返す。取り違えると 1.5 倍ずれる。
+  assert.equal(wavDurationMs(encodeWav(new Int16Array(24_000), 24_000)), 1000);
+});
+
+test("fmt と data の間に別のチャンクが挟まっても読める", () => {
+  const wav = encodeWav(new Int16Array(SAMPLE_RATE));
+  const list = Buffer.alloc(12);
+  list.write("LIST", 0);
+  list.writeUInt32LE(4, 4);
+  const spliced = Buffer.concat([wav.subarray(0, 36), list, wav.subarray(36)]);
+  spliced.writeUInt32LE(spliced.length - 8, 4);
+
+  assert.equal(wavDurationMs(spliced), 1000);
+});
+
+test("WAV でなければ待たない", () => {
+  // 読めないものを待つと、窓が開かないまま固まる。
+  assert.equal(wavDurationMs(Buffer.alloc(0)), 0);
+  assert.equal(wavDurationMs(Buffer.from("これは音声ではない")), 0);
+  assert.equal(wavDurationMs(encodeWav(new Int16Array(SAMPLE_RATE)).subarray(0, 30)), 0);
 });
 
 test("音量は無音で 0、振り切りで 1", () => {
@@ -97,12 +124,20 @@ test("無音が続けば話し終わりとみなす", () => {
   assert.equal(result?.reason, "speech");
 });
 
-test("一度も声がしなければ諦める", () => {
+test("一度も声がしなければ 1 秒で諦める", () => {
+  // 諦めた先は「はい？」と返して 8 秒の窓を開く経路。長さを変えると
+  // 「呼んだのに何も返ってこない時間」がそのまま変わる。
   const ep = new Endpointer(0.001);
 
+  let frames = 0;
   let result = null;
-  for (let i = 0; i < 60 && !result; i += 1) result = ep.push(quiet());
+  while (frames < 60 && !result) {
+    result = ep.push(quiet());
+    frames += 1;
+  }
+
   assert.equal(result?.reason, "silence");
+  assert.equal(frames, Math.ceil(1_000 / FRAME_MS), "諦めるまでの長さが変わっている");
 });
 
 test("話し続けても 20 秒で打ち切る", () => {

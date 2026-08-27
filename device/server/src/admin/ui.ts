@@ -28,6 +28,8 @@ import {
   THINKING_LEVELS,
   THINKING_LEVEL_LABELS,
   MAX_END_PHRASES,
+  MAX_CONTEXT_TURNS,
+  MAX_CONVERSATION_GAP_MIN,
   MAX_FOLLOW_UP_SEC,
   MAX_WAKE_REPLY_LENGTH,
   MAX_WAKE_WORDS,
@@ -357,6 +359,26 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
+           <legend>会話の記憶</legend>
+           <label class="radio" style="display:block">
+             <input type="number" name="conversationGapMin" min="0"
+               max="${MAX_CONVERSATION_GAP_MIN}" value="${config.conversationGapMin}"
+               style="width:5rem"> 分あいたら次の会話にする
+           </label>
+           <label class="radio" style="display:block">
+             <input type="number" name="contextTurns" min="1" max="${MAX_CONTEXT_TURNS}"
+               value="${config.contextTurns}" style="width:5rem"> 往復ぶんを AI に渡す
+           </label>
+           <p class="hint">
+             ウェイクワードは会話を切りません。<strong>前に話してからこの分数の
+             うちなら、同じ会話の続き</strong>として扱います。0 分にすると
+             毎回まっさらから始まります。
+             AI に渡すのは直近の往復だけで、履歴の保存はいつも全部です。
+             <strong>往復数を増やすほど文脈は続きますが、そのぶん課金が増えます。</strong>
+           </p>
+         </fieldset>
+
+         <fieldset>
            <legend>呼ばれたときの返事</legend>
            <input type="text" name="wakeReply" value="${escapeHtml(config.wakeReply)}"
              maxlength="${MAX_WAKE_REPLY_LENGTH}" placeholder="はい？"
@@ -499,6 +521,8 @@ export async function handleAdminConfigUpdate(
       speechSpeed: form.get("speechSpeed") ?? undefined,
       wakeWords: form.get("wakeWords") ?? undefined,
       followUpSec: form.get("followUpSec") ?? undefined,
+      conversationGapMin: form.get("conversationGapMin") ?? undefined,
+      contextTurns: form.get("contextTurns") ?? undefined,
       endPhrases: form.get("endPhrases") ?? undefined,
       wakeReply: form.get("wakeReply") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,

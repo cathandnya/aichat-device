@@ -36,6 +36,7 @@ import {
   createChat,
   deleteChat,
   endChat,
+  findResumable,
   messagesOf,
   reachedLimit,
   readChat,
@@ -44,6 +45,7 @@ import { Endpointer, NoiseFloor } from "../audio/endpoint.ts";
 import {
   FRAME_MS,
   MAX_UTTERANCE_SEC,
+  wavDurationMs,
   SAMPLE_RATE,
   encodeWav,
   rms,
@@ -71,6 +73,14 @@ const FOLLOW_UP_PREROLL_SEC = 0.4;
 /** エラー表示から待機に戻るまで。 */
 const ERROR_RESET_MS = 6_000;
 
+/**
+ * 鳴り終わりを待つ上限。
+ *
+ * 長さの読み違いで永遠に待つことがないようにする。20秒（`MAX_UTTERANCE_SEC`）
+ * 話しても回答の読み上げがこれを超えることはまずない。
+ */
+const MAX_SPEAKING_WAIT_MS = 60_000;
+
 export interface SessionIO {
   send(message: ServerMessage): void;
   sendAudio(audio: Buffer): Promise<void>;
@@ -96,8 +106,16 @@ export class Session {
 
   /** いま開いているチャット。無ければ待機中。 */
   private chatId: string | null = null;
-  /** 追い質問の窓を閉じるための時計。 */
+  /** 追い質問の窓を閉じるための時計。鳴り終わりを待つのにも使う。 */
   private followTimer: NodeJS.Timeout | null = null;
+  /**
+   * 送った音声が鳴り終わる時刻。
+   *
+   * `sendAudio` は**socket に渡し終わった**時点で返るので、これを
+   * 数えていないと窓が鳴っている間に開いてしまう。デバイスは届いた順に
+   * 隙間なく鳴らすので、長さを足していけば終わりが分かる。
+   */
+  private speakingUntil = 0;
   /**
    * このチャットで「呼ばれただけ」の返事を済ませたか。
    *
@@ -201,12 +219,30 @@ export class Session {
 
   // --- 聞き取り中 ---
 
-  /** ウェイクワード／ボタン。いまのチャットを閉じて新規に始める。 */
+  /**
+   * ウェイクワード／ボタン。
+   *
+   * **文脈は捨てない。** 直前の会話が規定時間内なら、その続きとして扱う。
+   * 呼ばれるたびに新しいチャットを作っていた頃は、少し考えて言い直すだけで
+   * 前の話が飛んでいた（実際の記録でも、2.7 分後の「東京なんだけど」が
+   * 別チャットになって文脈を失っていた）。
+   *
+   * 規定時間を過ぎていたら新しい会話として始める。
+   */
   private startChat(): void {
-    this.closeChat("wake");
+    this.closeChat("timeout");
 
-    const chat = createChat("device");
+    const saved = readConfig();
+    const chat =
+      findResumable("device", saved.conversationGapMin * 60_000) ??
+      createChat("device");
+
     this.chatId = chat.id;
+    // **呼ばれるたびに必ず戻す。会話ごとではない。**
+    // これは「物音で起きるたびに『はい？』と言い続けない」ための札で、
+    // 一度呼ばれた中で二度目の無言だったときにだけ効く。
+    // 継いだ会話だからと立てたままにすると、呼んで黙っていた人に
+    // 返事もせず窓も開かないまま待機に戻ってしまう。
     this.acknowledged = false;
     this.io.send({ type: "chat", chatId: chat.id, title: chat.title });
 
@@ -248,6 +284,20 @@ export class Session {
    * 誤爆が気になる家庭が止められるようにしてある。
    */
   private openFollowUp(): void {
+    // **鳴り終わってから数え始める。** 送出は socket に渡した時点で
+    // 返るので、ここで待たないと読み上げの長さぶん窓が短くなる。
+    // 鳴っている間に窓を開いても、自分の声を拾うだけで意味がない。
+    const remaining = Math.min(this.speakingUntil - Date.now(), MAX_SPEAKING_WAIT_MS);
+    if (remaining > 0) {
+      this.clearFollowTimer();
+      this.followTimer = setTimeout(() => {
+        this.followTimer = null;
+        if (this.state !== "speaking") return;
+        this.openFollowUp();
+      }, remaining);
+      return;
+    }
+
     const seconds = readConfig().followUpSec;
     if (seconds <= 0 || !this.chatId) {
       this.closeChat("timeout");
@@ -265,6 +315,14 @@ export class Session {
     }, seconds * 1000);
   }
 
+  /** 音声を送り、鳴り終わる時刻を進める。読み上げは必ずここを通す。 */
+  private async sendAudio(audio: Buffer): Promise<void> {
+    const now = Date.now();
+    this.speakingUntil =
+      Math.max(now, this.speakingUntil) + wavDurationMs(audio);
+    await this.io.sendAudio(audio);
+  }
+
   private clearFollowTimer(): void {
     if (this.followTimer) clearTimeout(this.followTimer);
     this.followTimer = null;
@@ -276,6 +334,8 @@ export class Session {
     this.abort = null;
     this.speech?.cancel();
     this.speech = null;
+    // やめたぶんは鳴らないので、待つ理由も無くなる。
+    this.speakingUntil = 0;
     this.utterance = [];
     this.endpointer = null;
     this.clearFollowTimer();
@@ -370,8 +430,8 @@ export class Session {
   private async generate(question: string, controller: AbortController): Promise<void> {
     if (!this.chatId) return;
 
-    // 上限に達していたらそこで閉じ、新しいチャットとして続ける。
-    // 長い文脈は課金が増え、回答の精度も落ちる。
+    // 暴走よけ。文脈の長さは messagesOf が絞るので、ここに来るのは
+    // 会話が異常に長く続いた場合だけ。
     const current = readChat(this.chatId);
     if (current && reachedLimit(current)) {
       endChat(this.chatId, "limit");
@@ -389,11 +449,15 @@ export class Session {
     if (asked) {
       this.io.send({ type: "chat", chatId, title: asked.title });
     }
-    const messages = messagesOf(asked ?? { turns: [] } as never);
+    // **AI に送るのは直近の往復だけ。** 保存は全部のまま。
+    const messages = messagesOf(
+      asked ?? ({ turns: [] } as never),
+      readConfig().contextTurns,
+    );
 
     this.speech = new SpeechQueue(
       (text) => synthesize(text, this.config, controller.signal),
-      (audio) => this.io.sendAudio(audio),
+      (audio) => this.sendAudio(audio),
     );
 
     const splitter = new SentenceSplitter();
@@ -515,7 +579,7 @@ export class Session {
           controller?.signal ?? AbortSignal.timeout(20_000),
         );
         if (controller?.signal.aborted) return;
-        await this.io.sendAudio(wav);
+        await this.sendAudio(wav);
       } catch (error) {
         // 鳴らなくても待つ側に進む。返事が出ないだけで
         // 会話ができなくなるほうが困る。

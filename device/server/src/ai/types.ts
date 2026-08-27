@@ -317,6 +317,10 @@ export interface AppConfig {
   endPhrases: string[];
   /** 名前を呼ばれただけのときの返事。空なら黙って待つ。 */
   wakeReply: string;
+  /** これ以上あいたら別の会話とみなす（分）。 */
+  conversationGapMin: number;
+  /** AI に送る直近の往復数。保存は全部。 */
+  contextTurns: number;
   systemPrompt: string;
   /**
    * 回答の長さ。必要なトークン数は思考レベルと併せて自動で決まる
@@ -423,6 +427,44 @@ export function isWakeReply(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_WAKE_REPLY_LENGTH;
 }
 
+/**
+ * これ以上あいたら「別の会話」とみなす分数。
+ *
+ * **ウェイクワードでは文脈を捨てない。** 以前は「呼ばれたら新しいチャット」に
+ * していたが、少し考えて言い直すだけで文脈が飛んだ。実際の記録でも
+ * 「今日これから雨降る」の 2.7 分後に「東京なんだけど」と言っているのに
+ * 別のチャットになっており、AI には前の話が渡っていなかった。
+ *
+ * 家族が別の話題を始める心配は、時間で十分に防げる。
+ */
+export const MAX_CONVERSATION_GAP_MIN = 120;
+
+export function isConversationGapMin(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_CONVERSATION_GAP_MIN
+  );
+}
+
+/**
+ * AI に送る直近の往復数。**保存は全部で、送る分だけを絞る。**
+ *
+ * 長い文脈は課金が増え、回答の精度も落ちる。会話が続いても
+ * 送る量が一定になるので、途中で強制的に打ち切る必要がなくなる。
+ */
+export const MAX_CONTEXT_TURNS = 30;
+
+export function isContextTurns(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_CONTEXT_TURNS
+  );
+}
+
 export const SYSTEM_PROMPT_MAX_LENGTH = 8000;
 
 /** KV に値が無い初回に使う既定値。 */
@@ -443,6 +485,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   followUpSec: 8,
   endPhrases: ["ありがとう", "おわり", "もういい", "またね"],
   wakeReply: "はい？",
+  conversationGapMin: 10,
+  contextTurns: 5,
   systemPrompt: "",
   answerLength: "standard",
   updatedAt: "1970-01-01T00:00:00.000Z",

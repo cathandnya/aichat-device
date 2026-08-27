@@ -25,6 +25,7 @@ import {
   reachedLimit,
   readChat,
 } from "../chats/store.ts";
+import { readConfig } from "../store.ts";
 import type { Source } from "../ws/protocol.ts";
 import { SSELineParser, SSE_HEADERS, sseMessage } from "../sse.ts";
 
@@ -48,8 +49,8 @@ export async function handleChat(c: Context, runtime: Runtime): Promise<Response
   let chat = typeof chatId === "string" ? readChat(chatId) : null;
   if (!chat) chat = createChat("web");
 
-  // 上限に達していたら、そこで閉じて新しいチャットにする。
-  // 長い文脈は課金が増え、回答の精度も落ちる。
+  // 暴走よけ。文脈の長さは messagesOf が絞るので、ここに来るのは
+  // 会話が異常に長く続いた場合だけ。
   if (reachedLimit(chat)) {
     endChat(chat.id, "limit");
     chat = createChat("web");
@@ -67,7 +68,8 @@ export async function handleChat(c: Context, runtime: Runtime): Promise<Response
   let result: Response;
   try {
     result = await generate(
-      { messages: messagesOf(asked ?? chat) },
+      // **AI に送るのは直近の往復だけ。** 保存は全部のまま。
+      { messages: messagesOf(asked ?? chat, readConfig().contextTurns) },
       c.req.raw.signal,
       runtime,
     );

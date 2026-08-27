@@ -42,6 +42,39 @@ export function encodeWav(pcm: Int16Array, sampleRate = SAMPLE_RATE): Buffer {
   return Buffer.concat([header, Buffer.from(pcm.buffer, pcm.byteOffset, dataBytes)]);
 }
 
+/**
+ * WAV が何ミリ秒鳴るか。
+ *
+ * **追い質問の窓をいつ開くか**の根拠。送り終わった時点から数えると、
+ * 鳴っている時間ぶん窓が短くなる（8秒のはずが実測で6秒台）。
+ * デバイスからの「鳴り終わった」を待つ手もあるが、取り決めを増やさずに
+ * 済むほうを採る。読み上げの速さは VOICEVOX 側で掛かるので、
+ * ここで測る長さがそのまま実際に鳴る長さになる。
+ *
+ * ヘッダを走査するのは、`fmt ` と `data` の間に別のチャンクが
+ * 挟まっても壊れないようにするため。読めなければ 0（待たない）。
+ */
+export function wavDurationMs(wav: Buffer): number {
+  if (wav.length < 44 || wav.toString("ascii", 0, 4) !== "RIFF") return 0;
+
+  let bytesPerSecond = 0;
+  let offset = 12;
+  while (offset + 8 <= wav.length) {
+    const id = wav.toString("ascii", offset, offset + 4);
+    const size = wav.readUInt32LE(offset + 4);
+    const body = offset + 8;
+
+    if (id === "fmt " && size >= 16) bytesPerSecond = wav.readUInt32LE(body + 8);
+    if (id === "data") {
+      if (!bytesPerSecond) return 0;
+      const bytes = Math.min(size, wav.length - body);
+      return (bytes / bytesPerSecond) * 1000;
+    }
+    offset = body + size + (size % 2); // チャンクは偶数境界に揃う
+  }
+  return 0;
+}
+
 /** 実効音量（0〜1）。無音判定に使う。 */
 export function rms(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;

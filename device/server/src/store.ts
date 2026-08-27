@@ -21,11 +21,15 @@ import {
   isModelId,
   isSpeechSpeed,
   isSttModel,
+  isContextTurns,
+  isConversationGapMin,
   isEndPhrases,
   isFollowUpSec,
   isWakeReply,
   isWakeWords,
   MAX_END_PHRASES,
+  MAX_CONTEXT_TURNS,
+  MAX_CONVERSATION_GAP_MIN,
   MAX_FOLLOW_UP_SEC,
   MAX_WAKE_REPLY_LENGTH,
   MAX_WAKE_WORDS,
@@ -87,6 +91,12 @@ export function readConfig(): AppConfig {
     wakeReply: isWakeReply(raw.wakeReply)
       ? raw.wakeReply
       : DEFAULT_CONFIG.wakeReply,
+    conversationGapMin: isConversationGapMin(raw.conversationGapMin)
+      ? raw.conversationGapMin
+      : DEFAULT_CONFIG.conversationGapMin,
+    contextTurns: isContextTurns(raw.contextTurns)
+      ? raw.contextTurns
+      : DEFAULT_CONFIG.contextTurns,
     systemPrompt:
       typeof raw.systemPrompt === "string"
         ? raw.systemPrompt
@@ -110,6 +120,8 @@ export interface ConfigPatch {
   followUpSec?: unknown;
   endPhrases?: unknown;
   wakeReply?: unknown;
+  conversationGapMin?: unknown;
+  contextTurns?: unknown;
   systemPrompt?: unknown;
   answerLength?: unknown;
 }
@@ -251,6 +263,28 @@ export function validatePatch(
     }
   }
 
+  let conversationGapMin = current.conversationGapMin;
+  if (patch.conversationGapMin !== undefined) {
+    const parsed = Number(patch.conversationGapMin);
+    if (isConversationGapMin(parsed)) {
+      conversationGapMin = parsed;
+    } else {
+      errors.push(
+        `会話が切れるまでの分数が不正です（0〜${MAX_CONVERSATION_GAP_MIN} の整数）。`,
+      );
+    }
+  }
+
+  let contextTurns = current.contextTurns;
+  if (patch.contextTurns !== undefined) {
+    const parsed = Number(patch.contextTurns);
+    if (isContextTurns(parsed)) {
+      contextTurns = parsed;
+    } else {
+      errors.push(`覚えておく往復数が不正です（1〜${MAX_CONTEXT_TURNS} の整数）。`);
+    }
+  }
+
   let sttModel = current.sttModel;
   if (patch.sttModel !== undefined) {
     if (isSttModel(patch.sttModel)) {
@@ -301,6 +335,8 @@ export function validatePatch(
       followUpSec,
       endPhrases,
       wakeReply,
+      conversationGapMin,
+      contextTurns,
       systemPrompt,
       answerLength,
       updatedAt: new Date().toISOString(),

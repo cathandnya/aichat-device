@@ -38,11 +38,21 @@ import {
 /** 残す件数。超えたら古いものから消す。 */
 export const CHAT_RETENTION = 200;
 
-/** 1つのチャットに入る往復の上限。安全弁。 */
-export const MAX_TURNS = 10;
-
-/** 1つのチャットが続けられる時間。安全弁。 */
-export const MAX_CHAT_MINUTES = 5;
+/**
+ * 1つのチャットに入る往復の上限。**暴走よけであって、文脈の上限ではない。**
+ *
+ * AI に送る量は `messagesOf` が絞るので、ここで打ち切る必要はない。
+ * それでも上限を置くのは、**一覧の速さがチャットの長さに比例する**ため。
+ * 一覧はディレクトリの全件を読むので、1件が肥大すると全体が遅くなる。
+ *
+ * 見積もり（1発言 ≒ 200 バイト、保存上限 200 件）:
+ *   2往復  → 合計 0.21MB → 一覧  10ms
+ *   50往復 → 合計 3.87MB → 一覧 191ms
+ *   上限なしで暴走 → 38MB → 一覧 1,881ms
+ *
+ * 音声で 50 往復続く会話は現実的にないので、実質は暴走よけとして働く。
+ */
+export const MAX_TURNS = 50;
 
 const DIR = dataPath("chats");
 
@@ -208,20 +218,75 @@ export function prune(limit = CHAT_RETENTION): number {
   return over;
 }
 
-/** 保存された発言を、AI に渡す形にする。 */
-export function messagesOf(chat: Chat): { role: string; content: string }[] {
-  return chat.turns.map((t) => ({ role: t.role, content: t.content }));
+/**
+ * 保存された発言を、AI に渡す形にする。**直近 `turns` 往復だけ。**
+ *
+ * 保存は全部のまま、送る分だけを絞る。会話がいくら続いても送る量が
+ * 一定になるので、文脈が長くなって課金が膨らむことも、途中で
+ * 強制的に打ち切る必要もない。
+ *
+ * **必ず user から始まるように切る。** `ai/chat.ts` の `parseBody` は
+ * 先頭が user でないと弾く。単純に後ろから N 件取ると assistant から
+ * 始まることがあり、そのまま送ると 400 になる。
+ */
+export function messagesOf(
+  chat: Chat,
+  turns = Number.POSITIVE_INFINITY,
+): { role: string; content: string }[] {
+  const messages = chat.turns.map((t) => ({ role: t.role, content: t.content }));
+  if (!Number.isFinite(turns)) return messages;
+
+  const wanted = Math.max(1, Math.floor(turns)) * 2;
+  let from = Math.max(0, messages.length - wanted);
+
+  // 先頭が assistant なら1つ進める（user から始まるまで）。
+  while (from < messages.length && messages[from]?.role !== "user") from += 1;
+
+  return messages.slice(from);
 }
 
-/** 上限に達しているか。往復か時間のどちらか。 */
-export function reachedLimit(chat: Chat, now = Date.now()): boolean {
-  if (chat.turns.length >= MAX_TURNS * 2) return true;
+/**
+ * 暴走よけの上限に達しているか。
+ *
+ * 以前は「文脈が長くなりすぎないように」10往復・5分で打ち切っていたが、
+ * **会話の途中で勝手に別チャットになる**という副作用があった。
+ * 文脈は `messagesOf` が絞るので、ここは肥大化を止めるだけでよい。
+ */
+export function reachedLimit(chat: Chat): boolean {
+  return chat.turns.length >= MAX_TURNS * 2;
+}
 
-  const started = Date.parse(chat.startedAt);
-  if (!Number.isNaN(started) && now - started >= MAX_CHAT_MINUTES * 60_000) {
-    return true;
-  }
-  return false;
+/**
+ * 続きとして使える直前の会話を探す。無ければ null。
+ *
+ * **ウェイクワードで文脈を捨てないための仕掛け。** 呼ばれるたびに
+ * 新しいチャットを作っていたので、少し考えて言い直すだけで前の話が
+ * 飛んでいた。規定時間内なら同じ会話として続ける。
+ *
+ * 保存から探すのは、**接続が切れても文脈が残るようにする**ため。
+ * セッションの変数に覚えると、ブラウザの再読み込みで飛ぶ。
+ *
+ * `origin` を一致させるのは、ブラウザで話していた会話をデバイスが
+ * 引き継ぐと驚きが大きいため。画面ごとに別の流れにする。
+ */
+export function findResumable(
+  origin: ChatOrigin,
+  gapMs: number,
+  now = Date.now(),
+): Chat | null {
+  if (gapMs <= 0) return null;
+
+  // 一覧は新しい順。同じ origin の一番新しいものだけを見る。
+  const latest = listChats().find((c) => c.origin === origin);
+  if (!latest) return null;
+
+  const updated = Date.parse(latest.updatedAt);
+  if (Number.isNaN(updated) || now - updated > gapMs) return null;
+
+  const chat = readChat(latest.id);
+  if (!chat || reachedLimit(chat)) return null;
+
+  return chat;
 }
 
 function save(chat: Chat): void {
