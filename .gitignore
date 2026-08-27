@@ -1,0 +1,16 @@
+# --- Secrets (never commit) ---
+device/server/.env
+
+# --- Node ---
+node_modules/
+dist/
+*.log
+
+# --- 保存されるもの ---
+# 設定とモデル一覧。機械ごとの状態なので追跡しない。
+device/server/data/
+# STUB_SAVE_AUDIO=1 で保存した録音。中身は家族の声。
+device/server/tmp/
+
+# --- macOS ---
+.DS_Store

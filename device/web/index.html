@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>AIChat Device</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <!-- 据え置きの画面なので、上から「状態」「本文」「操作」の順に置く。
+         離れて見るものなので文字は大きめ、配色は常に暗い（夜のテーブルで
+         白背景は眩しい）。 -->
+    <main id="app">
+      <header class="bar">
+        <div id="clock" class="clock">--:--</div>
+        <div id="badge" class="badge" hidden></div>
+      </header>
+
+      <section id="stage" class="stage" data-state="idle">
+        <div id="status" class="status">話しかけてください</div>
+        <div id="level" class="level"><span id="level-bar"></span></div>
+        <p id="question" class="question" hidden></p>
+        <p id="answer" class="answer"></p>
+        <ul id="sources" class="sources" hidden></ul>
+      </section>
+
+      <footer class="bar bottom">
+        <button id="talk" class="talk" type="button">話す</button>
+        <div id="model" class="model"></div>
+      </footer>
+    </main>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

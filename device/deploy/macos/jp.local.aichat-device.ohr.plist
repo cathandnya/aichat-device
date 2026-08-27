@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  音声認識（ohr）をログイン時から常駐させる LaunchAgent。
+
+  LaunchDaemon（システム全体）ではなく LaunchAgent（ユーザーごと）にしている。
+  macOS の音声認識はユーザーのセッションで動くもので、TCC の判定も
+  ユーザー単位のため。デバイスは自動ログインで起動するので、
+  ログイン時に立ち上がれば足りる。
+
+  導入:
+    cp device/deploy/macos/jp.local.aichat-device.ohr.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.ohr.plist
+
+  停止・削除:
+    launchctl bootout gui/$UID/jp.local.aichat-device.ohr
+    rm ~/Library/LaunchAgents/jp.local.aichat-device.ohr.plist
+
+  状態:
+    launchctl print gui/$UID/jp.local.aichat-device.ohr
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>jp.local.aichat-device.ohr</string>
+
+  <!--
+    ポートは 8091。**既定の 11434 は Ollama と衝突する。**
+    127.0.0.1 に絞るのは、認証を持たないため（LAN に開かない）。
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/ohr</string>
+    <string>--serve</string>
+    <string>--port</string>
+    <string>8091</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    落ちたら起こし直す。待機時 21MB / CPU 0% なので、
+    常駐させ続けても負担にならない。
+  -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 連続で失敗したときに起動を繰り返しすぎないようにする。 -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/aichat-device-ohr.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/aichat-device-ohr.log</string>
+</dict>
+</plist>
