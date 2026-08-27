@@ -310,6 +310,8 @@ export interface AppConfig {
   followUpSec: number;
   /** これが聞こえたら会話を終える。空でもよい。 */
   endPhrases: string[];
+  /** 名前を呼ばれただけのときの返事。空なら黙って待つ。 */
+  wakeReply: string;
   systemPrompt: string;
   /**
    * 回答の長さ。必要なトークン数は思考レベルと併せて自動で決まる
@@ -399,6 +401,23 @@ export function isEndPhrases(value: unknown): value is string[] {
   return value.every((v) => typeof v === "string" && v.trim().length >= 2);
 }
 
+/**
+ * 名前を呼ばれただけのときの返事。
+ *
+ * 「ずんだもん」とだけ言われて質問が続かなかったとき、
+ * **エラーにせず短く返事をして待つ。** 呼びかけに無反応だと
+ * 壊れているように見えるし、「聞き取れませんでした」と言われるのは
+ * こちらが悪いことにされているようで感じが悪い。
+ *
+ * **AI は呼ばない**（読み上げるだけ）ので費用はかからない。
+ * 空にすると、返事をせずに黙って待つ。
+ */
+export const MAX_WAKE_REPLY_LENGTH = 40;
+
+export function isWakeReply(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_WAKE_REPLY_LENGTH;
+}
+
 export const SYSTEM_PROMPT_MAX_LENGTH = 8000;
 
 /** KV に値が無い初回に使う既定値。 */
@@ -418,6 +437,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   wakeWords: ["ずんだもん", "すんだもん"],
   followUpSec: 8,
   endPhrases: ["ありがとう", "おわり", "もういい", "またね"],
+  wakeReply: "はい？",
   systemPrompt: "",
   answerLength: "standard",
   updatedAt: "1970-01-01T00:00:00.000Z",

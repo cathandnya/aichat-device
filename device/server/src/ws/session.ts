@@ -34,6 +34,7 @@ import {
 import {
   appendTurn,
   createChat,
+  deleteChat,
   endChat,
   messagesOf,
   reachedLimit,
@@ -97,6 +98,13 @@ export class Session {
   private chatId: string | null = null;
   /** 追い質問の窓を閉じるための時計。 */
   private followTimer: NodeJS.Timeout | null = null;
+  /**
+   * このチャットで「呼ばれただけ」の返事を済ませたか。
+   *
+   * 一度返事をしたあとも silence のたびに返すと、物音で
+   * 「はい？」を繰り返す機械になる。1回だけにする。
+   */
+  private acknowledged = false;
 
   private readonly config: Config;
   private readonly io: SessionIO;
@@ -199,6 +207,7 @@ export class Session {
 
     const chat = createChat("device");
     this.chatId = chat.id;
+    this.acknowledged = false;
     this.io.send({ type: "chat", chatId: chat.id, title: chat.title });
 
     this.beginListening();
@@ -272,7 +281,13 @@ export class Session {
     this.clearFollowTimer();
 
     if (this.chatId) {
-      endChat(this.chatId, reason);
+      // **一度も話さずに終わったチャットは残さない。**
+      // 呼びかけただけ・物音で起きただけのものが履歴に
+      // 「（無題）」として並ぶと、読み返すときに邪魔になる。
+      const chat = readChat(this.chatId);
+      if (chat && chat.turns.length === 0) deleteChat(this.chatId);
+      else endChat(this.chatId, reason);
+
       this.chatId = null;
     }
   }
@@ -284,7 +299,8 @@ export class Session {
     this.endpointer = null;
 
     if (result.reason === "silence") {
-      this.fail("聞き取れませんでした。もう一度どうぞ。");
+      // 呼ばれただけで質問が続かなかった。**失敗ではない。**
+      void this.acknowledge();
       return;
     }
     void this.answer();
@@ -340,7 +356,8 @@ export class Session {
     }
 
     if (!question) {
-      this.fail("聞き取れませんでした。もう一度どうぞ。");
+      // ウェイクワードだけが聞こえて、質問が無かった場合もここに来る。
+      void this.acknowledge();
       return;
     }
 
@@ -466,6 +483,47 @@ export class Session {
 
     // **読み上げが終わってから窓を開く。**鳴っている間に開くと
     // 自分の声を拾う（エコーキャンセルを持たないため）。
+    this.openFollowUp();
+  }
+
+  /**
+   * 名前を呼ばれただけのときの返事。
+   *
+   * **AI は呼ばない。**読み上げるだけなので費用はかからない。
+   * 返事のあとは追い質問の窓を開けて待つので、続けて質問できる。
+   *
+   * 2回目以降は黙って閉じる。物音で silence を繰り返すたびに
+   * 「はい？」と言い続ける機械になってしまうため。
+   */
+  private async acknowledge(): Promise<void> {
+    const controller = this.abort;
+
+    if (this.acknowledged || !this.chatId) {
+      this.closeChat("timeout");
+      this.setState("idle", "話しかけてください");
+      return;
+    }
+    this.acknowledged = true;
+
+    const reply = readConfig().wakeReply.trim();
+    if (reply) {
+      this.setState("speaking", "はい");
+      try {
+        const wav = await synthesize(
+          reply,
+          this.config,
+          controller?.signal ?? AbortSignal.timeout(20_000),
+        );
+        if (controller?.signal.aborted) return;
+        await this.io.sendAudio(wav);
+      } catch (error) {
+        // 鳴らなくても待つ側に進む。返事が出ないだけで
+        // 会話ができなくなるほうが困る。
+        console.error("[ack] 返事を鳴らせませんでした:", error);
+      }
+    }
+
+    if (controller?.signal.aborted) return;
     this.openFollowUp();
   }
 

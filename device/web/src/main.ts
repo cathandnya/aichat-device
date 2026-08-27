@@ -23,7 +23,10 @@ import {
   type ChatSummary,
   type Source,
 } from "./api/client.ts";
+import { DeviceSocket, type DeviceEvent } from "./api/device.ts";
 import { MicrophoneError, captureUtterance } from "./audio/capture.ts";
+import { MicStream, SampleRateError } from "./audio/stream.ts";
+import { AudioPlayer } from "./speech/player.ts";
 import { SentenceSplitter } from "./speech/sentences.ts";
 import {
   RemoteSpeaker,
@@ -32,7 +35,20 @@ import {
   type Speaker,
 } from "./speech/speaker.ts";
 
-type State = "idle" | "listening" | "thinking" | "speaking" | "error";
+/**
+ * 画面の状態。
+ *
+ * `following` は**マイクを開いているときだけ**現れる（追い質問の窓）。
+ * サーバーの `DeviceState` と同じ並びにしてあり、WebSocket 経路では
+ * サーバーから来た値をそのまま映す。
+ */
+type State =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "following"
+  | "error";
 
 const el = {
   stage: byId("stage"),
@@ -51,6 +67,7 @@ const el = {
   newChat: byId("new-chat") as HTMLButtonElement,
   toggleChats: byId("toggle-chats") as HTMLButtonElement,
   transcript: byId("transcript"),
+  mic: byId("mic") as HTMLButtonElement,
 };
 
 /**
@@ -65,6 +82,23 @@ let state: State = "idle";
 let session: AbortController | null = null;
 let speech: SpeechQueue | null = null;
 
+/**
+ * マイクを開いているか。
+ *
+ * **開いている間はサーバーが状態機械を持つ**（WebSocket 経路）。
+ * ウェイクワードが効き、追い質問も続けられる。
+ *
+ * 閉じているときは「押したときだけマイクを開く」従来の経路（HTTP）。
+ * 常時待ち受けにしたくないときのために残してある。
+ */
+let micOn = false;
+const socket = new DeviceSocket();
+const mic = new MicStream();
+const player = new AudioPlayer();
+/** WebSocket 経路で、いま組み立て中の質問と回答。 */
+let liveQuestion = "";
+let liveAnswer = "";
+
 void start();
 
 async function start(): Promise<void> {
@@ -72,6 +106,7 @@ async function start(): Promise<void> {
   setInterval(clock, 10_000);
 
   el.talk.addEventListener("click", onTalk);
+  el.mic.addEventListener("click", () => void toggleMic());
   el.newChat.addEventListener("click", () => void onNewChat());
   el.toggleChats.addEventListener("click", () => {
     const hidden = el.app.dataset.chats === "hidden";
@@ -97,6 +132,7 @@ async function start(): Promise<void> {
     if (state === "speaking") el.status.textContent = "回答中（読み上げできません）";
   };
 
+  setMicLabel();
   await refreshChats();
 
   const config = await fetchConfig();
@@ -126,15 +162,138 @@ function pickSpeaker(hasVoicevox: boolean): Speaker {
   return { prepare: async () => null, play: async () => {}, cancel: () => {} };
 }
 
+// --- マイクの開閉（常時待ち受け） ---
+
+/**
+ * マイクを開く／閉じる。
+ *
+ * 開くと WebSocket でサーバーに繋ぎ、80ms ごとに音を流す。
+ * **ウェイクワードの判定はサーバーが行う。** 画面は届いた状態を映すだけ。
+ */
+async function toggleMic(): Promise<void> {
+  // **触った流れの中で音を出せる状態にする。**
+  // ウェイクワードで始まると、鳴るのが最初の操作から遠く離れるため、
+  // ここで済ませておかないと自動再生の制限で無音になる。
+  void player.prime();
+
+  if (micOn) {
+    await closeMic();
+    return;
+  }
+  await openMic();
+}
+
+async function openMic(): Promise<void> {
+  try {
+    await mic.open((pcm) => socket.sendFrame(pcm));
+  } catch (error) {
+    fail(
+      error instanceof SampleRateError || error instanceof MicrophoneError
+        ? error.message
+        : "マイクを開けませんでした。",
+    );
+    await mic.close();
+    return;
+  }
+
+  socket.connect(onDeviceEvent);
+  micOn = true;
+  setMicLabel();
+}
+
+async function closeMic(): Promise<void> {
+  socket.cancel();
+  socket.close();
+  await mic.close();
+  player.cancel();
+
+  micOn = false;
+  liveQuestion = "";
+  liveAnswer = "";
+  setMicLabel();
+  setState("idle");
+  el.status.textContent = "話しかけてください";
+}
+
+function setMicLabel(): void {
+  el.mic.textContent = micOn ? "マイク ON" : "マイク OFF";
+  el.mic.dataset.on = micOn ? "1" : "0";
+  el.mic.title = micOn
+    ? "常時待ち受け中。ウェイクワードでチャットが始まります"
+    : "押したときだけマイクを開きます";
+}
+
+/** サーバーから届いたものを画面に映す。判断はしない。 */
+function onDeviceEvent(event: DeviceEvent): void {
+  switch (event.type) {
+    case "state": {
+      // **読み上げが終わった合図が無い**ので、speaking から出たことで見る。
+      if (state === "speaking" && event.state !== "speaking" && liveAnswer) {
+        appendTranscript(liveQuestion, liveAnswer);
+        liveQuestion = "";
+        liveAnswer = "";
+        el.question.hidden = true;
+        el.answer.textContent = "";
+        void refreshChats();
+      }
+      setState(event.state);
+      el.status.textContent = event.status;
+      break;
+    }
+    case "question":
+      liveQuestion = event.text;
+      el.question.textContent = event.text;
+      el.question.hidden = false;
+      break;
+    case "answer":
+      // 累積全文なので置き換える。
+      liveAnswer = event.text;
+      el.answer.textContent = event.text;
+      break;
+    case "sources":
+      showSources(event.sources);
+      break;
+    case "chat":
+      if (chatId !== event.chatId) {
+        chatId = event.chatId;
+        reset();
+        el.transcript.replaceChildren();
+      }
+      void refreshChats();
+      break;
+    case "audio":
+      player.enqueue(event.wav);
+      break;
+    case "error":
+      el.answer.textContent = event.message;
+      player.cancel();
+      break;
+    case "closed":
+      if (micOn) void closeMic();
+      break;
+  }
+}
+
 function onTalk(): void {
   // **触った瞬間に音を出せる状態にする。**
   // ブラウザは利用者が触る前に音を鳴らさない。読み上げが始まるのは
   // 聞き取りと生成が終わったあとで、そこまで来ると最初の操作から
   // 離れすぎていて拒否されることがある（実際に音が出なかった）。
   void speech?.prime();
+  void player.prime();
+
+  const busy = state !== "idle" && state !== "error";
+
+  // マイクを開いているときはサーバーが状態を持つ。
+  // ボタンは「ウェイクワードを言わずに起こす」ためのもの。
+  if (micOn) {
+    if (busy) socket.cancel();
+    else socket.wake();
+    return;
+  }
 
   // 話している最中のボタンは「やめて」。
-  if (state !== "idle" && state !== "error") {
+  if (busy) {
     stop();
     return;
   }
@@ -428,6 +587,8 @@ function reset(): void {
 function setState(next: State): void {
   state = next;
   el.stage.dataset.state = next;
+  // `following`（追い質問の窓）も「話している最中」に含める。
+  // ボタンは「やめる」になり、押せば会話を終えられる。
   const busy = next !== "idle" && next !== "error";
   el.talk.textContent = busy ? "やめる" : "話す";
   el.talk.dataset.mode = busy ? "stop" : "talk";

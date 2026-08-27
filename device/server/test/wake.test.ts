@@ -66,6 +66,20 @@ test("空のパターンで全部拾ってしまわない", () => {
   assert.equal(matchesWake("こんにちは", []), false);
 });
 
+// --- 試験用の経路が使う、語の差し替え ---
+
+test("差し替える語も同じ検証を通す", async () => {
+  // 試験の道具とはいえ、黙って何にでも反応する状態は作らない。
+  const { isWakeWords } = await import("../src/ai/types.ts");
+
+  assert.equal(isWakeWords(["ずんだもん"]), true);
+  assert.equal(isWakeWords(["アイチャット", "あいちゃっと"]), true);
+
+  for (const bad of [[], [""], ["あ"], ["x".repeat(40)], "ずんだもん", null]) {
+    assert.equal(isWakeWords(bad), false, JSON.stringify(bad));
+  }
+});
+
 // --- ウェイクワードを質問から落とす ---
 
 test("先頭のウェイクワードを落とす", () => {

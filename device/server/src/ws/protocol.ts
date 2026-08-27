@@ -41,11 +41,36 @@ export type ServerMessage =
   /** 設定の表示用（画面下の「いま Haiku 4.5」）。 */
   | { type: "config"; provider: string; model: string; wakeWords: string[] }
   /** どのチャットに入ったか。Web UI が履歴を追えるように。 */
-  | { type: "chat"; chatId: string; title: string };
+  | { type: "chat"; chatId: string; title: string }
+  /**
+   * 試験用（`?mode=wake`）。窓を1つ判定した結果。
+   *
+   * 誤起動を測るために**当たらなかった窓も送る**。何と聞こえたかが
+   * 見えないと、語を選び直す材料にならない。
+   */
+  | {
+      type: "heard";
+      /** 書き起こし。無音なら空。 */
+      text: string;
+      /** 判定語に当たったか。 */
+      fired: boolean;
+      /** ISO8601 */
+      at: string;
+      /** 書き起こしにかかった時間（ミリ秒）。 */
+      ms: number;
+    };
 
 /** デバイスからサーバーへ送る JSON（音声はバイナリで別に送る）。 */
 export type DeviceMessage =
   /** 画面を触った / 物理ボタン。ウェイクワード無しで起こす。 */
   | { type: "wake" }
   /** やめる。 */
-  | { type: "cancel" };
+  | { type: "cancel" }
+  /**
+   * 試験用（`?mode=wake`）。判定に使う語を差し替える。
+   *
+   * **設定（/admin）は書き換えない。** この接続の中だけで効く。
+   * 同じ部屋の音に対して候補を比べられるようにするため。
+   * 送らなければ設定の語を使う。
+   */
+  | { type: "wake-words"; words: string[] };

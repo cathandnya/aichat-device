@@ -3,6 +3,9 @@
  *
  * `/ws` で待ち受け、デバイス1台につき `Session` を1つ持つ。
  *
+ * `?mode=wake` で繋ぐと、**判定だけを行う試験用の経路**（`WakeProbe`）になる。
+ * チャットを作らず AI を呼ばないので、誤起動を何時間測っても費用はゼロ。
+ *
  * 音声はバイナリのフレーム（16kHz mono 16bit LE）で届く。
  * こちらからは JSON（状態・文字）とバイナリ（鳴らす WAV）を返す。
  * バイナリを送る前に `{type:"audio"}` を送って予告するので、
@@ -16,6 +19,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import type { Config } from "../config.ts";
 import type { DeviceMessage, ServerMessage } from "./protocol.ts";
 import { Session } from "./session.ts";
+import { WakeProbe } from "./wake-probe.ts";
 
 /** 1フレームのバイト数（80ms × 16kHz × 16bit）。 */
 const FRAME_BYTES = 1280 * 2;
@@ -33,6 +37,14 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
 
   wss.on("connection", (socket, request) => {
     const from = request.socket.remoteAddress ?? "?";
+    const url = new URL(request.url ?? "/", "http://localhost");
+
+    if (url.searchParams.get("mode") === "wake") {
+      console.log(`[ws] ウェイクワードの試験: ${from}`);
+      attachProbe(socket, config);
+      return;
+    }
+
     console.log(`[ws] つながりました: ${from}`);
 
     const session = new Session(config, {
@@ -65,20 +77,51 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
   return wss;
 }
 
+/** 判定だけの接続。チャットも AI も動かない。 */
+function attachProbe(socket: WebSocket, config: Config): void {
+  const probe = new WakeProbe(config, {
+    send: (message) => sendJson(socket, message),
+  });
+
+  socket.on("message", (data: Buffer, isBinary: boolean) => {
+    if (isBinary) {
+      forEachFrame(data, (frame) => probe.onFrame(frame));
+      return;
+    }
+    try {
+      const message = JSON.parse(data.toString("utf8")) as DeviceMessage;
+      if (message.type === "wake-words") probe.setWords(message.words);
+    } catch {
+      // 知らない形は読み飛ばす
+    }
+  });
+
+  socket.on("close", () => {
+    console.log("[ws] 試験を終えました");
+    probe.dispose();
+  });
+  socket.on("error", () => probe.dispose());
+}
+
 function onAudio(session: Session, data: Buffer): void {
+  forEachFrame(data, (frame) => session.onFrame(frame));
+}
+
+/**
+ * 受け取ったバイナリをフレームに割り直す。
+ *
+ * まとめて届いても構わないようにしてある（デバイスの送り方に依存しない）。
+ */
+function forEachFrame(data: Buffer, onFrame: (frame: Int16Array) => void): void {
   if (data.byteLength === 0 || data.byteLength > MAX_CHUNK_BYTES) return;
   // 端数のバイトは捨てる（16bit の途中で切れている分）。
   const usable = data.byteLength - (data.byteLength % 2);
 
-  // まとめて届いてもフレームに割り直す。デバイスの送り方に依存しない。
   for (let offset = 0; offset < usable; offset += FRAME_BYTES) {
     const end = Math.min(offset + FRAME_BYTES, usable);
-    const slice = data.subarray(offset, end);
     // Buffer は共有メモリなので、コピーしてから Int16 として見る。
-    const copy = Buffer.from(slice);
-    session.onFrame(
-      new Int16Array(copy.buffer, copy.byteOffset, copy.byteLength / 2),
-    );
+    const copy = Buffer.from(data.subarray(offset, end));
+    onFrame(new Int16Array(copy.buffer, copy.byteOffset, copy.byteLength / 2));
   }
 }
 

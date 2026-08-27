@@ -81,7 +81,14 @@ export async function captureUtterance(
   }
 }
 
-async function openMicrophone(): Promise<MediaStream> {
+/**
+ * マイクを開く。
+ *
+ * export しているのは、ウェイクワードの試験画面（wake.ts）からも
+ * 同じ制約（echoCancellation など）で開くため。ここを複製すると、
+ * 試験と本番で条件が食い違う。
+ */
+export async function openMicrophone(): Promise<MediaStream> {
   if (!globalThis.isSecureContext) {
     throw new MicrophoneError(
       "この URL ではマイクを使えません。127.0.0.1 で開いてください。",

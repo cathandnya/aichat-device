@@ -23,9 +23,11 @@ import {
   isSttModel,
   isEndPhrases,
   isFollowUpSec,
+  isWakeReply,
   isWakeWords,
   MAX_END_PHRASES,
   MAX_FOLLOW_UP_SEC,
+  MAX_WAKE_REPLY_LENGTH,
   MAX_WAKE_WORDS,
   WAKE_WORD_MAX_LENGTH,
   WAKE_WORD_MIN_LENGTH,
@@ -82,6 +84,9 @@ export function readConfig(): AppConfig {
     endPhrases: isEndPhrases(raw.endPhrases)
       ? raw.endPhrases
       : [...DEFAULT_CONFIG.endPhrases],
+    wakeReply: isWakeReply(raw.wakeReply)
+      ? raw.wakeReply
+      : DEFAULT_CONFIG.wakeReply,
     systemPrompt:
       typeof raw.systemPrompt === "string"
         ? raw.systemPrompt
@@ -104,6 +109,7 @@ export interface ConfigPatch {
   wakeWords?: unknown;
   followUpSec?: unknown;
   endPhrases?: unknown;
+  wakeReply?: unknown;
   systemPrompt?: unknown;
   answerLength?: unknown;
 }
@@ -236,6 +242,15 @@ export function validatePatch(
     }
   }
 
+  let wakeReply = current.wakeReply;
+  if (patch.wakeReply !== undefined) {
+    if (isWakeReply(patch.wakeReply)) {
+      wakeReply = (patch.wakeReply as string).trim();
+    } else {
+      errors.push(`呼ばれたときの返事が長すぎます（${MAX_WAKE_REPLY_LENGTH}文字以内）。`);
+    }
+  }
+
   let sttModel = current.sttModel;
   if (patch.sttModel !== undefined) {
     if (isSttModel(patch.sttModel)) {
@@ -285,6 +300,7 @@ export function validatePatch(
       wakeWords,
       followUpSec,
       endPhrases,
+      wakeReply,
       systemPrompt,
       answerLength,
       updatedAt: new Date().toISOString(),

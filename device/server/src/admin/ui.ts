@@ -29,6 +29,7 @@ import {
   THINKING_LEVEL_LABELS,
   MAX_END_PHRASES,
   MAX_FOLLOW_UP_SEC,
+  MAX_WAKE_REPLY_LENGTH,
   MAX_WAKE_WORDS,
   SPEECH_SPEEDS,
   STT_MODELS,
@@ -356,6 +357,18 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
+           <legend>呼ばれたときの返事</legend>
+           <input type="text" name="wakeReply" value="${escapeHtml(config.wakeReply)}"
+             maxlength="${MAX_WAKE_REPLY_LENGTH}" placeholder="はい？"
+             style="width:100%;padding:.6rem;border-radius:8px;border:1px solid #d5d5d8">
+           <p class="hint">
+             名前を呼ばれただけで質問が続かなかったときに、これを読み上げて待ちます。
+             <strong>AI は呼ばないので費用はかかりません。</strong>
+             空にすると、返事をせずに黙って待ちます。
+           </p>
+         </fieldset>
+
+         <fieldset>
            <legend>会話を終える語</legend>
            <textarea name="endPhrases" rows="2"
              placeholder="ありがとう&#10;おわり">${escapeHtml(config.endPhrases.join("\n"))}</textarea>
@@ -487,6 +500,7 @@ export async function handleAdminConfigUpdate(
       wakeWords: form.get("wakeWords") ?? undefined,
       followUpSec: form.get("followUpSec") ?? undefined,
       endPhrases: form.get("endPhrases") ?? undefined,
+      wakeReply: form.get("wakeReply") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,
       answerLength: form.get("answerLength") ?? undefined,
     },

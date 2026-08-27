@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ウェイクワードの試験</title>
+    <link rel="stylesheet" href="./src/wake.css" />
+  </head>
+  <body class="wake">
+    <!--
+      実マイクでウェイクワードの検出率と誤起動を測るための画面。
+      **AI は呼ばない**（チャットも作らない）ので、何時間流しても費用はゼロ。
+    -->
+    <header class="head">
+      <button id="toggle" class="toggle" type="button">マイクを開く</button>
+      <div id="stats" class="stats">待機中</div>
+    </header>
+
+    <section class="controls">
+      <label for="words">判定語（1行に1つ）</label>
+      <textarea id="words" rows="3" spellcheck="false"></textarea>
+      <p class="hint">
+        設定（<code>/admin</code>）は書き換えません。この画面の中だけで試せます。
+        <strong>音声認識が実際に出す文字列で書いてください。</strong>
+        同じ発話でも濁点が落ちることがあります（ずんだもん → すんだもん）。
+      </p>
+    </section>
+
+    <div id="notice" class="notice" hidden></div>
+
+    <main class="log" id="log"></main>
+
+    <footer class="foot">
+      <button id="save" class="ghost" type="button">ログを保存</button>
+      <button id="clear" class="ghost" type="button">ログを消す</button>
+      <a class="ghost link" href="./index.html">チャット画面へ</a>
+    </footer>
+
+    <script type="module" src="./src/wake.ts"></script>
+  </body>
+</html>

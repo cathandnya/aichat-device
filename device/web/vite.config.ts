@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { defineConfig } from "vite";
 
@@ -59,11 +61,21 @@ export default defineConfig({
     proxy: {
       "/api": proxyToServer(),
       "/admin": proxyToServer(),
+      // デバイスと、ウェイクワードの試験画面（wake.html）が使う。
+      // **`ws: true` が無いと upgrade されず 404 になる。**
+      "/ws": { target: "ws://127.0.0.1:9801", ws: true },
     },
   },
   build: {
     // Chromium 固定なので落とす必要が無い。
     target: "es2022",
     outDir: "dist",
+    rollupOptions: {
+      // 画面は2つ。本番（サーバーが dist を配る）でも /wake.html で開ける。
+      input: {
+        main: resolve(__dirname, "index.html"),
+        wake: resolve(__dirname, "wake.html"),
+      },
+    },
   },
 });

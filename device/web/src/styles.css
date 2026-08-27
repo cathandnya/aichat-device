@@ -125,6 +125,23 @@ body {
   color: var(--danger);
 }
 
+/* 常時待ち受けの切り替え。ON のときは目立たせる（マイクが開いていることを隠さない）。 */
+.mic {
+  border: 1px solid #2c3140;
+  background: none;
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.mic[data-on="1"] {
+  border-color: #2f7d55;
+  background: #12301f;
+  color: #6ee7a8;
+}
+
 .toggle-chats {
   border: none;
   background: none;
@@ -161,6 +178,7 @@ body {
 }
 
 .clock {
+  flex: 1;
   font-size: 2rem;
   font-variant-numeric: tabular-nums;
   color: var(--dim);

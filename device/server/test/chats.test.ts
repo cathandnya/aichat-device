@@ -174,6 +174,17 @@ test("終わった理由を残す", () => {
   assert.equal(store.readChat(chat.id)?.endedBy, "phrase");
 });
 
+// --- 呼ばれただけのチャット ---
+
+test("一度も話していないチャットは消せる", () => {
+  // 呼びかけただけ・物音で起きただけのものが履歴に「（無題）」として
+  // 並ぶと、読み返すときに邪魔になる。
+  const empty = makeChat(90);
+  assert.equal(store.readChat(empty.id)?.turns.length, 0);
+  assert.equal(store.deleteChat(empty.id), true);
+  assert.equal(store.listChats().some((c) => c.id === empty.id), false);
+});
+
 // --- 安全 ---
 
 test("id にパスを紛れ込ませても data の外を触らない", () => {
