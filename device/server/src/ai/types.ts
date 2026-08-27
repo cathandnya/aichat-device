@@ -297,6 +297,15 @@ export interface AppConfig {
   sttModel: SttModel;
   /** 読み上げの速さ。1.0 が VOICEVOX の既定。 */
   speechSpeed: SpeechSpeed;
+  /**
+   * ウェイクワード。書き起こしにこのどれかが出たら起動する。
+   *
+   * **複数持てるのが肝心。** 認識器には癖があり、同じ発話でも
+   * 濁点が落ちたりする（「ずんだもん」→「すんだもん」）。
+   * 実測では両方を登録して検出 10/10・誤起動 0/15 になった。
+   * 詳しくは docs/06。
+   */
+  wakeWords: string[];
   systemPrompt: string;
   /**
    * 回答の長さ。必要なトークン数は思考レベルと併せて自動で決まる
@@ -333,6 +342,27 @@ export function isSpeechSpeed(value: unknown): value is SpeechSpeed {
   );
 }
 
+/**
+ * ウェイクワードの上限。数も長さも絞る。
+ *
+ * 判定は「窓を書き起こして文字列を探す」ので、増やしても CPU は増えない。
+ * それでも絞るのは、短すぎる語（1〜2文字）を入れると誤起動が跳ねるため。
+ */
+export const MAX_WAKE_WORDS = 8;
+export const WAKE_WORD_MIN_LENGTH = 3;
+export const WAKE_WORD_MAX_LENGTH = 24;
+
+export function isWakeWords(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  if (value.length > MAX_WAKE_WORDS) return false;
+  return value.every(
+    (v) =>
+      typeof v === "string" &&
+      v.trim().length >= WAKE_WORD_MIN_LENGTH &&
+      v.trim().length <= WAKE_WORD_MAX_LENGTH,
+  );
+}
+
 export const SYSTEM_PROMPT_MAX_LENGTH = 8000;
 
 /** KV に値が無い初回に使う既定値。 */
@@ -347,6 +377,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   sttModel: "apple-speech",
   // 据え置きデバイスは「聞いてすぐ次に進みたい」ので、既定から速める。
   speechSpeed: 1.5,
+  // 実測で一番成績が良かった組み合わせ（docs/06）。
+  // 「すんだもん」は濁点が落ちた聞こえ方。足しても誤起動は増えなかった。
+  wakeWords: ["ずんだもん", "すんだもん"],
   systemPrompt: "",
   answerLength: "standard",
   updatedAt: "1970-01-01T00:00:00.000Z",

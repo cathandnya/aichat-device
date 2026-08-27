@@ -150,6 +150,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminPassword,
     adminSessionSecret,
     geminiModelsEndpoint: env.GEMINI_MODELS_ENDPOINT ?? "",
+    // 上流の差し替え。**テスト用**。本番では設定しない。
+    // 既定が本物になるので、設定漏れでスタブを向くことはない。
+    ...(env.ANTHROPIC_BASE_URL ? { anthropicBaseUrl: env.ANTHROPIC_BASE_URL } : {}),
+    ...(env.GEMINI_BASE_URL ? { geminiBaseUrl: env.GEMINI_BASE_URL } : {}),
     whisperUrl: (env.WHISPER_URL ?? "").replace(/\/+$/, ""),
     appleSpeechUrl: (env.APPLE_SPEECH_URL ?? "").replace(/\/+$/, ""),
     voicevoxUrl: (env.VOICEVOX_URL ?? "").replace(/\/+$/, ""),

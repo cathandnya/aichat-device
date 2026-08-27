@@ -23,6 +23,10 @@ import {
   isModelId,
   isSpeechSpeed,
   isSttModel,
+  isWakeWords,
+  MAX_WAKE_WORDS,
+  WAKE_WORD_MAX_LENGTH,
+  WAKE_WORD_MIN_LENGTH,
   isThinkingLevel,
   type AppConfig,
 } from "./ai/types.ts";
@@ -80,6 +84,9 @@ export function readConfig(): AppConfig {
     speechSpeed: isSpeechSpeed(raw.speechSpeed)
       ? raw.speechSpeed
       : DEFAULT_CONFIG.speechSpeed,
+    wakeWords: isWakeWords(raw.wakeWords)
+      ? raw.wakeWords
+      : [...DEFAULT_CONFIG.wakeWords],
     systemPrompt:
       typeof raw.systemPrompt === "string"
         ? raw.systemPrompt
@@ -99,6 +106,7 @@ export interface ConfigPatch {
   thinkingLevel?: unknown;
   sttModel?: unknown;
   speechSpeed?: unknown;
+  wakeWords?: unknown;
   systemPrompt?: unknown;
   answerLength?: unknown;
 }
@@ -182,6 +190,27 @@ export function validatePatch(
     }
   }
 
+  let wakeWords = current.wakeWords;
+  if (patch.wakeWords !== undefined) {
+    // 管理UI からは改行区切りの文字列で来る。
+    const list =
+      typeof patch.wakeWords === "string"
+        ? patch.wakeWords
+            .split(/[\n,、]/)
+            .map((w) => w.trim())
+            .filter((w) => w.length > 0)
+        : patch.wakeWords;
+
+    if (isWakeWords(list)) {
+      wakeWords = list.map((w) => w.trim());
+    } else {
+      errors.push(
+        `ウェイクワードの値が不正です（${WAKE_WORD_MIN_LENGTH}〜${WAKE_WORD_MAX_LENGTH}文字を ` +
+          `${MAX_WAKE_WORDS}個まで、1つ以上）。`,
+      );
+    }
+  }
+
   let sttModel = current.sttModel;
   if (patch.sttModel !== undefined) {
     if (isSttModel(patch.sttModel)) {
@@ -228,6 +257,7 @@ export function validatePatch(
       thinkingLevel,
       sttModel,
       speechSpeed,
+      wakeWords,
       systemPrompt,
       answerLength,
       updatedAt: new Date().toISOString(),

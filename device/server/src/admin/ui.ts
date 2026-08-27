@@ -27,6 +27,7 @@ import {
   ANSWER_LENGTH_LABELS,
   THINKING_LEVELS,
   THINKING_LEVEL_LABELS,
+  MAX_WAKE_WORDS,
   SPEECH_SPEEDS,
   STT_MODELS,
   STT_MODEL_LABELS,
@@ -325,6 +326,20 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
+           <legend>ウェイクワード</legend>
+           <textarea name="wakeWords" rows="3"
+             placeholder="ずんだもん&#10;すんだもん">${escapeHtml(config.wakeWords.join("\n"))}</textarea>
+           <p class="hint">
+             1行に1つ、${MAX_WAKE_WORDS}個まで。書き起こしにこのどれかが出たら起動します。
+             <strong>音声認識が実際に出す文字列で書いてください。</strong>
+             同じ発話でも濁点が落ちることがあるため（「ずんだもん」→「すんだもん」）、
+             聞こえ方の候補を並べておくと取りこぼしが減ります。
+             「ねえ」で始まる語は実在語に寄せられて認識されません
+             （「ねえアイチャット」→「恋愛チャット」）。
+           </p>
+         </fieldset>
+
+         <fieldset>
            <legend>読み上げの速さ</legend>
            <select name="speechSpeed">${speedOptions}</select>
            <p class="hint">声の高さは変えずに話す速さだけを変えます（VOICEVOX の speedScale）。据え置きのデバイスは待たされる感じが出やすいので、既定より速めにしてあります。</p>
@@ -442,6 +457,7 @@ export async function handleAdminConfigUpdate(
       thinkingLevel: form.get("thinkingLevel") ?? undefined,
       sttModel: form.get("sttModel") ?? undefined,
       speechSpeed: form.get("speechSpeed") ?? undefined,
+      wakeWords: form.get("wakeWords") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,
       answerLength: form.get("answerLength") ?? undefined,
     },

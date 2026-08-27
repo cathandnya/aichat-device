@@ -27,7 +27,7 @@
 |---|---|
 | [device/server/](device/server/) | ローカルサーバー。画面の配信、AI の呼び出し、音声認識、読み上げ、管理UI |
 | [device/web/](device/web/) | 画面。マイク・無音検出・読み上げの再生はすべてここ（ブラウザ） |
-| [docs/](docs/) | 設計と経緯。[05-issues](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案 |
+| [docs/](docs/) | 設計と経緯。[05-issues](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案（音声は Mac に流す） |
 
 ### なぜブラウザから AI を直接叩かないのか
 

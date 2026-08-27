@@ -11,6 +11,7 @@
 import { serve } from "@hono/node-server";
 
 import { createApp } from "./app.ts";
+import { attachWebSocket } from "./ws/index.ts";
 import { bindWarning, loadDotEnv, readConfig, startupNotes } from "./config.ts";
 
 loadDotEnv();
@@ -29,10 +30,14 @@ for (const note of startupNotes(config)) console.warn(`⚠ ${note}`);
 
 const app = createApp(config);
 
-serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => {
+const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, () => {
   console.log(`aichat-device-server  http://${config.host}:${config.port}`);
   console.log(`  モード: ${config.mode}${config.mode === "live" ? "（AI の課金が発生します）" : "（課金なし）"}`);
   console.log(`  読み上げ: ${config.voicevoxUrl || "未設定"}`);
   console.log(`  管理UI: http://${config.host}:${config.port}/admin`);
-  console.log("  画面の開発は device/web で `npm run dev`（http://127.0.0.1:5173）");
+  console.log("  画面の開発は device/web で `npm run dev`（http://127.0.0.1:9800）");
+  console.log(`  デバイスの接続先: ws://${config.host}:${config.port}/ws`);
 });
+
+// デバイス（マイクと画面）はここに繋ぐ。
+attachWebSocket(server as unknown as import("node:http").Server, config);
