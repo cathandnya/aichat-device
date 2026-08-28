@@ -43,12 +43,20 @@ export type EndpointResult =
  */
 export class Endpointer {
   private readonly threshold: number;
+  /**
+   * 一度も声がしないまま諦めるまでの長さ。
+   *
+   * **続きを待つときは長くする。** 言い切っていない発話の続きは、
+   * 考えている時間ぶん遅れて来る。ここが短いと結局切ってしまう。
+   */
+  private readonly noSpeechMs: number;
   private elapsedMs = 0;
   private silenceMs = 0;
   private speaking = false;
 
-  constructor(noiseFloor: number) {
+  constructor(noiseFloor: number, noSpeechMs = NO_SPEECH_MS) {
     this.threshold = Math.max(noiseFloor * NOISE_FACTOR, FLOOR);
+    this.noSpeechMs = noSpeechMs;
   }
 
   push(frame: Int16Array): EndpointResult | null {
@@ -59,7 +67,7 @@ export class Endpointer {
       if (level > this.threshold) {
         this.speaking = true;
         this.silenceMs = 0;
-      } else if (this.elapsedMs >= NO_SPEECH_MS) {
+      } else if (this.elapsedMs >= this.noSpeechMs) {
         return { reason: "silence" };
       }
       return null;
