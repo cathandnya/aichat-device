@@ -52,6 +52,8 @@ class MainActivity : Activity() {
     /** `--es mock` で差し込んだ状態。**入っている間はサーバーに従わない。** */
     private var mockState: State? = null
     private var mockSpeaking = false
+    /** 直前も鳴っていたか。鳴り終わりの瞬間を捉えるのに使う。 */
+    private var wasSpeaking = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +73,19 @@ class MainActivity : Activity() {
             Log.w(TAG, "立ち絵がありません。顔は出ませんが声は動きます。")
         }
 
-        player = AudioPlayer().also { it.start() }
+        // 表情の切り替えは**鳴らし始める端末側**で行う（AudioPlayer 参照）。
+        player = AudioPlayer(
+            onStart = { emotion ->
+                ui.post {
+                    if (mockState == null) {
+                        view.emotion = emotion
+                        view.invalidate()
+                    }
+                }
+            },
+            // **鳴り終わりは端末が知っている。** サーバーの計算値ではずれる。
+            onDrained = { ui.post { socket?.spoken() } },
+        ).also { it.start() }
         prepareSounds()
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
@@ -108,7 +122,17 @@ class MainActivity : Activity() {
         device.connect()
 
         try {
-            mic = MicStream { frame, length -> device.sendFrame(frame, length) }
+            mic = MicStream { frame, length ->
+                // **鳴らしている間は送らない。**
+                //
+                // この端末はエコーキャンセルを持たない（`aecEnabled` は
+                // false）ので、送るとスピーカーの音がそのまま戻る。
+                // サーバー側にも「読み上げ中は判定しない」はあるが、
+                // **輪（RingBuffer）には入ってしまう**ので、追い質問で
+                // 手前を遡ったときに読み上げの尻尾が質問に混ざる。
+                // 出どころで止めれば、下流のどの経路にも効く。
+                if (!player.playing) device.sendFrame(frame, length)
+            }
                 .also { it.open() }
             Log.i(TAG, "エコーキャンセル: ${mic?.aecEnabled}")
         } catch (e: Exception) {
@@ -178,7 +202,8 @@ class MainActivity : Activity() {
                 view.emotion = event.emotion
                 view.invalidate()
             }
-            is Event.Audio -> player.enqueue(event.wav)
+            is Event.Audio -> player.enqueue(event.wav, event.emotion)
+            Event.SpeechEnd -> player.end()
             is Event.Failed -> Log.w(TAG, "サーバー: ${event.message}")
             Event.Closed -> {
                 view.state = State.IDLE
@@ -216,6 +241,14 @@ class MainActivity : Activity() {
         val speaking = player.playing || mockSpeaking
         mouthStep = if (speaking) (mouthStep + 1) % Face.PATTERN.size else 0
         view.mouth = if (speaking) Face.PATTERN[mouthStep] else Face.CLOSED
+
+        // **鳴り終わったら素の顔に戻す。** 最後の文の表情のまま固まると、
+        // 怒った顔や悲しい顔で待ち続けることになる。
+        // mock 中は差し込んだ表情を見たいので戻さない。
+        if (wasSpeaking && !speaking && mockState == null) {
+            view.emotion = Emotion.NEUTRAL
+        }
+        wasSpeaking = speaking
         view.level = mic?.level ?: 0f
         val now = Calendar.getInstance()
         // **秒針は 1 秒ごとに刻む。** ミリ秒を混ぜると滑って動くが、

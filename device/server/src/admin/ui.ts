@@ -329,6 +329,15 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
+           <legend>表情</legend>
+           <label class="row">
+             <input type="checkbox" name="emotionTags"${config.emotionTags ? " checked" : ""} />
+             感情のタグを付けさせる
+           </label>
+           <p class="hint">回答の各文の先頭に <code>[happy]</code> のようなタグを付けさせ、キャラクターの表情に映します。<strong>切っても回答の内容は変わりません</strong>（タグが無いときは言葉づかいから推定します）。モデルがうまくタグを付けないときに切ってください。</p>
+         </fieldset>
+
+         <fieldset>
            <legend>回答の長さ</legend>
            <select name="answerLength">${lengthOptions}</select>
            <p class="hint">回答が途中で切れる場合は長くしてください。必要なトークン数は思考レベルと併せて自動で決まります。読み上げる前提なら「短め」が扱いやすいです。</p>
@@ -530,6 +539,9 @@ export async function handleAdminConfigUpdate(
       endPhrases: form.get("endPhrases") ?? undefined,
       wakeReply: form.get("wakeReply") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,
+      // チェックボックスは外れていると何も送られてこない。
+      // **undefined にせず false を送る**（undefined は「変更なし」の意味）。
+      emotionTags: form.get("emotionTags") ?? false,
       answerLength: form.get("answerLength") ?? undefined,
     },
     catalog?.models.map((m) => m.id) ?? [],

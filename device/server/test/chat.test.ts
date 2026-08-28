@@ -133,6 +133,9 @@ test("モデルとシステムプロンプトは保存された設定が使わ�
     provider: "claude",
     claudeModel: "claude-opus-5",
     systemPrompt: "やさしく答えて",
+    // ここで見たいのは「画面の指定を無視すること」なので、
+    // サーバーが足すタグの指示は切っておく。
+    emotionTags: false,
   });
 
   await withUpstream({}, async (app, upstream) => {
@@ -157,6 +160,53 @@ test("モデルとシステムプロンプトは保存された設定が使わ�
     assert.equal(sent.model, "claude-opus-5");
     assert.equal(sent.system, "やさしく答えて");
     assert.notEqual(sent.max_tokens, 99999);
+  });
+});
+
+test("感情タグの指示はサーバーが足す", async () => {
+  // **/admin の systemPrompt とは分ける。** 利用者が書き換えたときに
+  // タグの指示が消えると、原因の分からない不調になる（docs/08）。
+  setConfig({
+    provider: "claude",
+    systemPrompt: "やさしく答えて",
+    emotionTags: true,
+  });
+
+  await withUpstream({}, async (app, upstream) => {
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "やあ" }),
+    });
+    await response.text();
+
+    const sent = JSON.parse(upstream.received.at(-1)?.body ?? "{}") as {
+      system?: string;
+    };
+    assert.ok(sent.system?.includes("やさしく答えて"), "利用者の指示は残る");
+    assert.ok(sent.system?.includes("[happy]"), "タグの指示が足される");
+  });
+});
+
+test("感情タグを切ると指示を足さない", async () => {
+  setConfig({
+    provider: "claude",
+    systemPrompt: "やさしく答えて",
+    emotionTags: false,
+  });
+
+  await withUpstream({}, async (app, upstream) => {
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "やあ" }),
+    });
+    await response.text();
+
+    const sent = JSON.parse(upstream.received.at(-1)?.body ?? "{}") as {
+      system?: string;
+    };
+    assert.equal(sent.system, "やさしく答えて");
   });
 });
 

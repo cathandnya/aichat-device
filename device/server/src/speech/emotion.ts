@@ -13,6 +13,32 @@
  * 投資は無駄にならない**。
  */
 
+/**
+ * タグを付けさせる指示。**サーバーが必ず足す。**
+ *
+ * `/admin` の `systemPrompt`（利用者が書き換える）とは分ける。
+ * **書き換えでタグの指示が消えると、原因の分からない不調になる**
+ * （docs/08「プロンプトの書き方」）。
+ *
+ * 効くと分かっている書き方に揃えてある。
+ * - 語を**そのまま 5 つ列挙する**（「感情を書け」にしない。自由に作る）
+ * - 「各文の**先頭**に必ず 1 つ」「タグ以外の説明をしない」
+ * - **例を 2 つ**入れる
+ * - 「迷ったら `[neutral]`」— 逃げ道を与えると変な語を作りにくい
+ */
+export const EMOTION_PROMPT = `各文の先頭に、その文の感情を示すタグを必ず1つ付けてください。
+使えるタグは次の5つだけです。ほかの語を作らないでください。
+
+[neutral] [happy] [sad] [angry] [surprised]
+
+- タグは文の先頭にだけ置き、文の途中には入れないでください
+- タグについての説明や言い訳は書かないでください
+- 迷ったら [neutral] を使ってください
+
+例:
+[happy] できたのだ！ [neutral] 次は何をするのだ。
+[sad] 見つからなかったのだ。 [neutral] 別の方法を試すのだ。`;
+
 /** 表に無い語は捨てる。デバイス側（Emotion.kt）と揃える。 */
 export const EMOTIONS = [
   "neutral",
@@ -103,9 +129,38 @@ export class EmotionTagStripper {
 
   /**
    * delta を流し込む。**本文だけが返る。**
+   *
+   * **1 つの delta に複数のタグが入ることがある。** Gemini は改行込みで
+   * まとめて送ってくることがあり、`[happy] …\n[sad] …\n[angry] …` が
+   * 1 回で届く。採った端から {@link take} で読まないと**最後のタグだけが
+   * 残り、それが 1 文目に付く**（実際にそうなった）。
+   *
+   * 順序を保つため、タグの手前までの本文を {@link pushParts} で
+   * 区切って返す。`push` はその本文をつないだだけのもの。
    */
   push(delta: string): string {
+    return this.pushParts(delta)
+      .map((part) => (typeof part === "string" ? part : ""))
+      .join("");
+  }
+
+  /**
+   * delta を「本文の断片」と「タグ」の並びに分けて返す。**順序を保つ。**
+   *
+   * 文字列はそのまま本文、`{ emotion }` はそこにタグがあった印。
+   * 呼び出し側はこれを順に処理すれば、タグが本文のどこに挟まっていたかを
+   * 取り違えない。
+   */
+  pushParts(delta: string): Array<string | { emotion: Emotion }> {
+    const parts: Array<string | { emotion: Emotion }> = [];
     let out = "";
+
+    const flushText = () => {
+      if (out) {
+        parts.push(out);
+        out = "";
+      }
+    };
 
     for (const ch of delta) {
       if (this.held) {
@@ -114,6 +169,10 @@ export class EmotionTagStripper {
         if (ch === "]") {
           const word = this.held.slice(1, -1);
           if (isEmotion(word)) {
+            // **ここまでの本文を先に閉じる。** そうしないと後ろの本文と
+            // 混ざって、タグがどの文に掛かるか分からなくなる。
+            flushText();
+            parts.push({ emotion: word });
             this.pending = word;
           } else {
             // 既知の語でないなら本文。`[1]` はここで助かる。
@@ -138,7 +197,8 @@ export class EmotionTagStripper {
       }
       out += ch;
     }
-    return out;
+    flushText();
+    return parts;
   }
 
   /** 終端。**保留分を取りこぼさない。** */

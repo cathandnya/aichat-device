@@ -40,8 +40,15 @@ sealed interface Event {
     data class EmotionChanged(val emotion: Emotion) : Event
     /** ウェイクワードで起こされた。効果音を鳴らす合図。 */
     data object Wake : Event
-    /** 読み上げの音声（WAV）。 */
-    data class Audio(val wav: ByteArray) : Event
+    /**
+     * 鳴らす音声。**表情も一緒に来る。**
+     *
+     * 別々に受け取ると、鳴らす順と顔を変える順が合わない
+     * （サーバーは端末の再生の進みを知らない）。
+     */
+    data class Audio(val wav: ByteArray, val emotion: Emotion?) : Event
+    /** 読み上げはこれで終わり。**次の音は来ない。** */
+    data object SpeechEnd : Event
     data class Failed(val message: String) : Event
     data object Closed : Event
 }

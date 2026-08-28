@@ -323,6 +323,13 @@ export interface AppConfig {
   contextTurns: number;
   systemPrompt: string;
   /**
+   * 感情タグを付けさせるか。
+   *
+   * **切っても本文は変わらない。** 表情は辞書での推定に落ちるだけ
+   * （docs/08）。タグが効かないと分かったときに戻せるようにしておく。
+   */
+  emotionTags: boolean;
+  /**
    * 回答の長さ。必要なトークン数は思考レベルと併せて自動で決まる
    * （`geminiOutputBudget` / `claudeOutputBudget`）。
    */
@@ -488,6 +495,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   conversationGapMin: 10,
   contextTurns: 5,
   systemPrompt: "",
+  emotionTags: true,
   answerLength: "standard",
   updatedAt: "1970-01-01T00:00:00.000Z",
 };

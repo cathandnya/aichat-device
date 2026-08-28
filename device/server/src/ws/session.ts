@@ -24,6 +24,7 @@
  */
 
 import { handleChat } from "../ai/chat.ts";
+import { looksComplete } from "../ai/complete.ts";
 import { transcribe } from "../ai/stt.ts";
 import {
   WAKE_HOP_SEC,
@@ -48,7 +49,6 @@ import {
   wavDurationMs,
   SAMPLE_RATE,
   encodeWav,
-  rms,
 } from "../audio/format.ts";
 import { RingBuffer } from "../audio/ring.ts";
 import { runtimeFrom, type Config } from "../config.ts";
@@ -86,6 +86,22 @@ const ERROR_RESET_MS = 6_000;
  */
 const MAX_SPEAKING_WAIT_MS = 60_000;
 
+/**
+ * 端末の合図を待つ余裕。
+ *
+ * 計算値ちょうどで開くと、端末の再生がわずかに遅れているだけで
+ * 保険が先に鳴ってしまう。**合図を待つ側に倒す。**
+ */
+const SPOKEN_GRACE_MS = 1_500;
+
+/**
+ * 言い切っていないときに、続きを待つ長さ。
+ *
+ * **長くてよい。** 言い切った人はここへ来ないので、待たされるのは
+ * 「えーっと」と考えている人だけ。短いと結局切ってしまう。
+ */
+const RESUME_WAIT_MS = 3_000;
+
 export interface SessionIO {
   send(message: ServerMessage): void;
   sendAudio(audio: Buffer): Promise<void>;
@@ -121,6 +137,36 @@ export class Session {
    * 隙間なく鳴らすので、長さを足していけば終わりが分かる。
    */
   private speakingUntil = 0;
+  /**
+   * 次に送る音声に載せる表情。
+   *
+   * **鳴り始めを知っているのは端末だけ。** サーバーの `wavDurationMs` は
+   * 計算値で実際の再生とずれるので、時計合わせでは追いつかない。
+   * 音と同じ予告に入れて渡し、切り替えは端末に任せる。
+   */
+  private nextEmotion: Emotion | null = null;
+  /**
+   * 端末が鳴らし終えたと言ってきたか。
+   *
+   * **計算値より端末の言い分を優先する。** 立てるのは `onSpoken`、
+   * 倒すのは次の読み上げを始めるとき。
+   */
+  private spoken = false;
+  /**
+   * 待ち直したか。**ログのためだけに持つ。**
+   *
+   * 待つかどうかの判定には使わない（回数では止めない）。
+   */
+  private resumed = false;
+  /**
+   * 続きが来ないと分かったので、もう待たない。
+   *
+   * 待ち直しの最中に無音で終わったときに立てる。これが無いと、
+   * 同じ判定でもう一度待ちに入って抜けられない。
+   */
+  private giveUpWaiting = false;
+  /** 待ち直しの前半。続きと繋いで 1 回で書き起こす。 */
+  private pending: Int16Array | null = null;
   /**
    * このチャットで「呼ばれただけ」の返事を済ませたか。
    *
@@ -161,11 +207,16 @@ export class Session {
         break;
 
       case "following":
-        // 窓が開いている間は**ウェイクワードを判定しない。**
-        // 代わりに声がしたかだけを見て、したら同じチャットの続きに入る。
-        // ここでウェイクワードも回すと、判定が二重になって遅くなる。
-        if (rms(frame) > this.noise.current * 3) this.continueListening();
-        else this.noise.update(frame);
+        // **窓が開いている間は無条件で聞き取りに入る。**
+        //
+        // 以前は音量で門番をしていたが、この端末は入力が小さく、
+        // 暗騒音の推定が下限に張り付く。閾値が固定の 0.015 になり、
+        // **わずかな物音（実測 0.019）でも起動した**。
+        //
+        // 呼ばれたあとは聞く体勢なのだから、迷う必要がない。声が
+        // 無ければ下流の `Endpointer` が `silence` で戻すので、門番を
+        // 二重に置く意味も無い。読み上げ中のマイクは端末が止めている。
+        this.continueListening();
         break;
 
       case "listening":
@@ -276,10 +327,17 @@ export class Session {
   /** 追い質問。同じチャットのまま聞き取りに入る。 */
   private continueListening(): void {
     this.clearFollowTimer();
-    // **遡る量を短くする。** ウェイクワードを含める必要がなく、
-    // 長く遡ると前の発話の尻尾まで拾ってしまう
-    // （実際に「の天気は駅までの行き方は」という質問文になった）。
-    this.beginListening(FOLLOW_UP_PREROLL_SEC);
+    // **窓のぶんだけ待つ。**
+    //
+    // 音量の門番をやめて即ここへ来るようにしたので、`Endpointer` の
+    // 既定（1 秒）で諦めると**窓が実質 1 秒になる**。呼ばれてから
+    // 考えている人を、話し始める前に切ってしまった。
+    //
+    // 遡る量は短いまま。ウェイクワードを含める必要がなく、長く遡ると
+    // 前の発話の尻尾まで拾う（実際に「の天気は駅までの行き方は」と
+    // いう質問文になった）。
+    const seconds = readConfig().followUpSec;
+    this.beginListening(FOLLOW_UP_PREROLL_SEC, Math.max(seconds, 1) * 1000);
   }
 
   /**
@@ -289,11 +347,11 @@ export class Session {
    * ウェイクワードで始めるときは、その発話ごと拾って書き起こしてから
    * 文字で落とす（切り出しの位置に頼るより確実）。
    */
-  private beginListening(prerollSec = WAKE_WINDOW_SEC): void {
+  private beginListening(prerollSec = WAKE_WINDOW_SEC, noSpeechMs?: number): void {
     if (this.errorTimer) clearTimeout(this.errorTimer);
     this.clearFollowTimer();
     this.abort = new AbortController();
-    this.endpointer = new Endpointer(this.noise.current);
+    this.endpointer = new Endpointer(this.noise.current, noSpeechMs);
 
     this.utterance = [this.ring.last(prerollSec)];
 
@@ -311,17 +369,10 @@ export class Session {
     // **鳴り終わってから数え始める。** 送出は socket に渡した時点で
     // 返るので、ここで待たないと読み上げの長さぶん窓が短くなる。
     // 鳴っている間に窓を開いても、自分の声を拾うだけで意味がない。
-    const remaining = Math.min(this.speakingUntil - Date.now(), MAX_SPEAKING_WAIT_MS);
-    if (remaining > 0) {
-      this.clearFollowTimer();
-      this.followTimer = setTimeout(() => {
-        this.followTimer = null;
-        if (this.state !== "speaking") return;
-        this.openFollowUp();
-      }, remaining);
-      return;
-    }
-
+    //
+    // **終わりの合図は端末が出す**（`spoken`）。WAV の長さから計算すると
+    // 実際の再生とずれる。ここでの待ちは、その合図が来なかったときの
+    // 保険（切断・取りこぼし）でしかない。
     const seconds = readConfig().followUpSec;
     if (seconds <= 0 || !this.chatId) {
       this.closeChat("timeout");
@@ -339,11 +390,81 @@ export class Session {
     }, seconds * 1000);
   }
 
+  /**
+   * この文の感情を決める。**タグがあればそれ、無ければ辞書。**
+   *
+   * 1 文ごとに出しておく。**タグが付いたのか辞書に落ちたのかを
+   * 区別できないと、プロンプトが効いているか測れない**（docs/08）。
+   */
+  private pickEmotion(tagged: Emotion | null, sentence: string): Emotion {
+    const emotion = tagged ?? guessEmotion(sentence);
+    const from = tagged ? "タグ" : "辞書";
+    console.log(`[emotion] ${emotion}（${from}） ${sentence.slice(0, 24)}`);
+    return emotion;
+  }
+
+  /**
+   * 端末が鳴らし終えた。**追い質問の窓はここから数え始める。**
+   *
+   * 読み上げ中でなければ捨てる（前の会話の取りこぼしが後から届いても、
+   * いまの状態を壊さない）。
+   */
+  onSpoken(): void {
+    // **読み上げ中でなければ捨てる。** 前の回の取りこぼしが遅れて届く
+    // ことがあり、いまの状態を壊してはいけない。
+    if (this.state !== "speaking") return;
+    this.spoken = true;
+    this.clearFollowTimer();
+    this.openFollowUp();
+  }
+
+  /**
+   * 端末の「鳴り終わり」が来なかったときの保険。
+   *
+   * 計算した鳴り終わりに余裕を足した時刻で、こちらから窓を開ける。
+   * **合図が来ればそちらが先に開く**ので、ここは通らないのが正常。
+   */
+  private armSpokenFallback(): void {
+    const wait = Math.min(
+      Math.max(this.speakingUntil - Date.now(), 0) + SPOKEN_GRACE_MS,
+      MAX_SPEAKING_WAIT_MS,
+    );
+    this.clearFollowTimer();
+    this.followTimer = setTimeout(() => {
+      this.followTimer = null;
+      if (this.state !== "speaking") return;
+      console.log("[speech] 端末からの鳴り終わりが来ないので、計算値で開きます");
+      this.spoken = true;
+      this.openFollowUp();
+    }, wait);
+  }
+
+  /**
+   * 待ち直しをこれ以上続けられないか。
+   *
+   * **回数ではなく長さで止める。** ここを見ないと、言い淀み続ける人の
+   * 音声が `MAX_UTTERANCE_SEC` を超え、頭のほうが切り捨てられる。
+   */
+  private tooLongToWait(): boolean {
+    const held = this.pending?.length ?? 0;
+    // 続きを話す余地（3 秒ぶん）を残して止める。
+    return held >= (MAX_UTTERANCE_SEC - 3) * SAMPLE_RATE;
+  }
+
+  /** 次の音声に載せる表情を取り出す。**1 回だけ返る。** */
+  takeEmotion(): Emotion | null {
+    const value = this.nextEmotion;
+    this.nextEmotion = null;
+    return value;
+  }
+
   /** 音声を送り、鳴り終わる時刻を進める。読み上げは必ずここを通す。 */
   private async sendAudio(audio: Buffer): Promise<void> {
     const now = Date.now();
     this.speakingUntil =
       Math.max(now, this.speakingUntil) + wavDurationMs(audio);
+    // 新しい音を送ったので、前の「鳴り終わった」は無効。
+    this.spoken = false;
     await this.io.sendAudio(audio);
   }
 
@@ -362,6 +483,10 @@ export class Session {
     this.speakingUntil = 0;
     this.utterance = [];
     this.endpointer = null;
+    // **待ち直しの前半も捨てる。** 残すと次の質問の頭に前の声が混ざる。
+    this.resumed = false;
+    this.pending = null;
+    this.giveUpWaiting = false;
     this.clearFollowTimer();
 
     if (this.chatId) {
@@ -383,6 +508,19 @@ export class Session {
     this.endpointer = null;
 
     if (result.reason === "silence") {
+      // **待ち直しの途中なら、溜めたぶんを送る。**
+      //
+      // 「えーと、それほんと。」で待ちに入り、続きが来ないまま無音に
+      // なったとき、ここで `acknowledge` に行くと**前半が捨てられて
+      // 会話が終わる**（実機で「最後しゃべってるけど終わった」）。
+      // 続きが無いだけで、聞き取れているものはある。
+      if (this.pending) {
+        // **もう待たない。** 続きが来ないことが分かったので、
+        // ここでまた `looksComplete` を見ると同じ判定で待ち続ける。
+        this.giveUpWaiting = true;
+        void this.answer();
+        return;
+      }
       // 呼ばれただけで質問が続かなかった。**失敗ではない。**
       void this.acknowledge();
       return;
@@ -396,7 +534,11 @@ export class Session {
     const controller = this.abort;
     if (!controller) return;
 
-    const pcm = concat(this.utterance);
+    // **前半があれば繋いでから書き起こす。** 分けて認識して文字を繋ぐと、
+    // 境界の語が壊れる（「冷蔵庫に」＋「卵がある」が別々に化ける）。
+    const pcm = this.pending
+      ? concat([this.pending, concat(this.utterance)])
+      : concat(this.utterance);
     this.utterance = [];
 
     this.setState("thinking", "聞き取っています");
@@ -445,6 +587,41 @@ export class Session {
       return;
     }
 
+    // **言い切っていなければ続きを待つ。**
+    //
+    // 無音 700ms で切ると、考えながら話す人の発話が途中で送られる。
+    // かといって無音の長さを一律に伸ばすと、言い切ったときも待たされる。
+    // **末尾が言い切りの形かどうか**で分けると、迷ったときだけ待てる。
+    //
+    // **回数は数えない。** 人は「えーっと、あのー、冷蔵庫に」と何度でも
+    // 言い淀む。暴走しないのは、待つのをやめる道が 2 つあるため。
+    //
+    //   3 秒黙る       → `silence` で確定して送られる
+    //   溜めが長すぎる → 下の `tooLongToWait` で諦める
+    //
+    // 以前は 1 回だけにしていたが、2 度目の言い淀みで普通に切られた。
+    console.log(
+      `[speech] 聞き取り: 「${question}」 完了=${looksComplete(question)}`,
+    );
+    if (this.giveUpWaiting) {
+      this.giveUpWaiting = false;
+    } else if (!looksComplete(question) && !this.tooLongToWait()) {
+      console.log(`[speech] まだ続きそうなので待ちます: 「${question}」`);
+      this.resumed = true;
+      this.pending = pcm;
+      // **長めに待つ。** ここへ来るのは言い切っていないときだけなので、
+      // 待たせるのは「考えながら話している人」に限られる。
+      this.beginListening(0, RESUME_WAIT_MS);
+      return;
+    }
+    // 待ち直したぶんがどう繋がったかを残す。**判定の当たり外れは
+    // これを見て直す。**
+    if (this.resumed) {
+      console.log(`[speech] 続きを足しました: 「${question}」`);
+    }
+    this.resumed = false;
+    this.pending = null;
+
     this.io.send({ type: "question", text: question });
     this.setState("thinking", "考えています");
 
@@ -482,7 +659,9 @@ export class Session {
     this.speech = new SpeechQueue(
       (text) => synthesize(text, this.config, controller.signal),
       (audio) => this.sendAudio(audio),
-      (emotion) => this.io.send({ type: "emotion", emotion }),
+      (emotion) => {
+        this.nextEmotion = emotion;
+      },
     );
 
     const splitter = new SentenceSplitter();
@@ -536,20 +715,26 @@ export class Session {
           if (event.text) {
             // **タグを先に剥がす。** ここを通さないと画面にも読み上げにも
             // `[happy]` が出る。
-            const text = stripper.push(event.text);
-            tagged = stripper.take() ?? tagged;
+            //
+            // **順序どおりに処理する。** 1 つの delta に複数のタグが入る
+            // ことがあり（Gemini は改行込みでまとめて送ってくる）、
+            // 最後のタグだけを見ると **1 文目に最後の感情が付く**。
+            for (const part of stripper.pushParts(event.text)) {
+              if (typeof part !== "string") {
+                tagged = part.emotion;
+                continue;
+              }
+              if (!answer) this.setState("speaking", "回答中");
+              answer += part;
+              this.io.send({ type: "answer", text: answer });
+              for (const sentence of splitter.push(part)) {
+                this.speech?.enqueue(sentence, this.pickEmotion(tagged, sentence));
+                tagged = null;
+              }
+            }
             for (const word of stripper.takeUnknown()) {
               // 表に足す材料になる。捨てたことは黙らない。
               console.log(`[emotion] 知らない語を捨てました: ${word}`);
-            }
-            if (!text) continue;
-
-            if (!answer) this.setState("speaking", "回答中");
-            answer += text;
-            this.io.send({ type: "answer", text: answer });
-            for (const sentence of splitter.push(text)) {
-              this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
-              tagged = null;
             }
           }
           if (event.sources?.length) {
@@ -581,12 +766,12 @@ export class Session {
       answer += rest;
       this.io.send({ type: "answer", text: answer });
       for (const sentence of splitter.push(rest)) {
-        this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
+        this.speech?.enqueue(sentence, this.pickEmotion(tagged, sentence));
         tagged = null;
       }
     }
     for (const sentence of splitter.flush()) {
-      this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
+      this.speech?.enqueue(sentence, this.pickEmotion(tagged, sentence));
       tagged = null;
     }
 
@@ -602,12 +787,20 @@ export class Session {
     await this.speech?.drain();
     if (controller.signal.aborted) return;
 
+    // **これで最後だと伝える。** 端末はこれを見てから鳴り終わりを返す。
+    this.io.send({ type: "speech-end" });
+
     this.speech = null;
     this.abort = null;
 
-    // **読み上げが終わってから窓を開く。**鳴っている間に開くと
-    // 自分の声を拾う（エコーキャンセルを持たないため）。
-    this.openFollowUp();
+    // **ここでは窓を開けない。** 開けてしまうと状態が `speaking` から
+    // 外れ、そのあとに届く端末の「鳴り終わり」が弾かれる（実際そうなって
+    // いて、毎回この下の保険が動いていた）。
+    //
+    // 窓は `onSpoken` が開く。**送出が終わった時刻と、スピーカーから
+    // 音が消える時刻は違う**（送出は socket に渡した時点で返る）。
+    // 待つのはそのぶん。合図が来なければ保険が開ける。
+    this.armSpokenFallback();
   }
 
   /**
@@ -648,12 +841,17 @@ export class Session {
     }
 
     if (controller?.signal.aborted) return;
-    this.openFollowUp();
+    // **ここも「これで最後」を伝える。** SpeechQueue を通らない経路なので、
+    // 言い忘れると端末が鳴り終わりを返さない。
+    this.io.send({ type: "speech-end" });
+    // 窓は端末の合図で開く（`onSpoken`）。ここでは保険だけ張る。
+    this.armSpokenFallback();
   }
 
   // --- 補助 ---
 
   private setState(state: DeviceState, status: string): void {
+    if (this.state !== state) console.log(`[state] ${this.state} -> ${state}`);
     this.state = state;
     this.io.send({ type: "state", state, status });
   }

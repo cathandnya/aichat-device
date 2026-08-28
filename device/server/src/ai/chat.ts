@@ -20,6 +20,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import { EMOTION_PROMPT } from "../speech/emotion.ts";
 import { readConfig } from "../store.ts";
 import { errorResponse } from "../http.ts";
 import {
@@ -230,13 +231,20 @@ export async function handleChat(
   const cloud = config.provider;
   const model = modelFor(config, cloud);
 
+  // **タグの指示はサーバーが足す。** `/admin` の systemPrompt は利用者が
+  // 書き換えるので、そちらに混ぜると書き換えで消えて原因の分からない
+  // 不調になる（docs/08）。
+  const systemPrompt = config.emotionTags
+    ? [config.systemPrompt, EMOTION_PROMPT].filter(Boolean).join("\n\n")
+    : config.systemPrompt;
+
   try {
     const upstream =
       cloud === "claude"
         ? await callClaude(
             signal,
             runtime,
-            config.systemPrompt,
+            systemPrompt,
             claudeOutputBudget(config.answerLength),
             model,
             parsed.messages,
@@ -244,7 +252,7 @@ export async function handleChat(
         : await callGemini(
             signal,
             runtime,
-            config.systemPrompt,
+            systemPrompt,
             // 思考の分を上乗せした値。本文の分だけ渡すと思考で使い切る。
             geminiOutputBudget(config.answerLength, config.thinkingLevel),
             model,

@@ -101,6 +101,10 @@ export function readConfig(): AppConfig {
       typeof raw.systemPrompt === "string"
         ? raw.systemPrompt
         : DEFAULT_CONFIG.systemPrompt,
+    emotionTags:
+      typeof raw.emotionTags === "boolean"
+        ? raw.emotionTags
+        : DEFAULT_CONFIG.emotionTags,
     answerLength: isAnswerLength(raw.answerLength)
       ? raw.answerLength
       : DEFAULT_CONFIG.answerLength,
@@ -123,6 +127,7 @@ export interface ConfigPatch {
   conversationGapMin?: unknown;
   contextTurns?: unknown;
   systemPrompt?: unknown;
+  emotionTags?: unknown;
   answerLength?: unknown;
 }
 
@@ -310,6 +315,15 @@ export function validatePatch(
     }
   }
 
+  // チェックボックスは「入っていなければ false」。文字列でも来る。
+  let emotionTags = current.emotionTags;
+  if (patch.emotionTags !== undefined) {
+    emotionTags =
+      patch.emotionTags === true ||
+      patch.emotionTags === "on" ||
+      patch.emotionTags === "true";
+  }
+
   let answerLength = current.answerLength;
   if (patch.answerLength !== undefined) {
     if (isAnswerLength(patch.answerLength)) {
@@ -338,6 +352,7 @@ export function validatePatch(
       conversationGapMin,
       contextTurns,
       systemPrompt,
+      emotionTags,
       answerLength,
       updatedAt: new Date().toISOString(),
     },

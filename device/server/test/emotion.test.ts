@@ -91,6 +91,35 @@ test("タグが無ければ本文はそのまま", () => {
   assert.equal(s.take(), null);
 });
 
+test("**1つの delta に複数のタグ**が入っても順序が狂わない", () => {
+  // Gemini は改行込みでまとめて送ってくることがある。採った端から
+  // 読まないと最後のタグだけが残り、**1文目に最後の感情が付く**
+  // （実際に「嬉しい時は…」に sad が付いた）。
+  const s = new EmotionTagStripper();
+  const parts = s.pushParts("[happy] うれしいのだ。\n[sad] かなしいのだ。\n[angry] おこったのだ。");
+
+  const order = parts.map((p) => (typeof p === "string" ? "本文" : p.emotion));
+  assert.deepEqual(order, [
+    "happy",
+    "本文",
+    "sad",
+    "本文",
+    "angry",
+    "本文",
+  ]);
+});
+
+test("pushParts の本文をつなぐと push と同じ", () => {
+  const a = new EmotionTagStripper();
+  const b = new EmotionTagStripper();
+  const text = "[happy] やった[1]のだ。[sad] だめなのだ。";
+  const joined = a
+    .pushParts(text)
+    .map((p) => (typeof p === "string" ? p : ""))
+    .join("");
+  assert.equal(joined, b.push(text));
+});
+
 test("辞書で推定する", () => {
   assert.equal(guessEmotion("やったのだ！"), "happy");
   assert.equal(guessEmotion("ごめんなさい"), "sad");

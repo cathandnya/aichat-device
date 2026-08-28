@@ -34,6 +34,8 @@ class DeviceSocket(
     private var closing = false
     /** 直前に「次はバイナリ」と予告があったか。 */
     private var expectAudio = false
+    /** その音声に載っていた表情。**音と一緒に上へ渡す。** */
+    private var pendingEmotion: Emotion? = null
     private var retryMs = 1_000L
 
     fun connect() {
@@ -57,7 +59,8 @@ class DeviceSocket(
                 // 予告のあとに届いたバイナリだけを音声として扱う。
                 if (expectAudio) {
                     expectAudio = false
-                    onEvent(Event.Audio(bytes.toByteArray()))
+                    onEvent(Event.Audio(bytes.toByteArray(), pendingEmotion))
+                    pendingEmotion = null
                 }
             }
 
@@ -105,9 +108,16 @@ class DeviceSocket(
                 ),
             )
             // 次に届くバイナリが読み上げの音声であることの予告。
-            "audio" -> expectAudio = true
+            // **表情も一緒に来る。** 鳴らし始めるときに顔を変えれば、
+            // 声と表情がずれない。
+            "audio" -> {
+                expectAudio = true
+                pendingEmotion =
+                    if (json.has("emotion")) Emotion.of(json.optString("emotion")) else null
+            }
             "wake" -> onEvent(Event.Wake)
             "emotion" -> onEvent(Event.EmotionChanged(Emotion.of(json.optString("emotion"))))
+            "speech-end" -> onEvent(Event.SpeechEnd)
             "error" -> onEvent(Event.Failed(json.optString("message")))
             // question / answer / sources / chat / config は文字なので使わない。
             // **取り決めは変えない。** ブラウザの画面が使い続けている。
@@ -128,6 +138,11 @@ class DeviceSocket(
      */
     fun wake() {
         socket?.send("""{"type":"wake"}""")
+    }
+
+    /** 鳴らし終えた。**追い質問の窓はこれで開く。** */
+    fun spoken() {
+        socket?.send("""{"type":"spoken"}""")
     }
 
     /** やめる。 */

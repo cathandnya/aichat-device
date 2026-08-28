@@ -60,7 +60,12 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
     const session = new Session(config, {
       send: (message: ServerMessage) => sendJson(socket, message),
       sendAudio: async (audio: Buffer) => {
-        sendJson(socket, { type: "audio", bytes: audio.byteLength });
+        const emotion = session.takeEmotion();
+        sendJson(socket, {
+          type: "audio",
+          bytes: audio.byteLength,
+          ...(emotion ? { emotion } : {}),
+        });
         await sendBinary(socket, audio);
       },
     }, deviceId);
@@ -145,6 +150,7 @@ function onControl(session: Session, raw: string): void {
 
   if (message.type === "wake") session.onWakeRequest();
   if (message.type === "cancel") session.onCancel();
+  if (message.type === "spoken") session.onSpoken();
 }
 
 function sendJson(socket: WebSocket, message: ServerMessage): void {
