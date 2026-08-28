@@ -197,7 +197,8 @@ class MainActivity : Activity() {
             }
             // **気づいたことをすぐ返す。** 聞き取りが始まるまで無反応だと、
             // 呼んだ人はもう一度呼んでしまう。
-            Event.Wake -> sounds?.play(wakeSound, 1f, 1f, 1, 0, 1f)
+            // 音が無ければ鳴らさない（読み込みに失敗すると 0 が返る）。
+            Event.Wake -> if (wakeSound != 0) sounds?.play(wakeSound, 1f, 1f, 1, 0, 1f)
             is Event.EmotionChanged -> {
                 view.emotion = event.emotion
                 view.invalidate()
@@ -336,7 +337,16 @@ class MainActivity : Activity() {
                     .build(),
             )
             .build()
-        wakeSound = sounds?.load(this, R.raw.wake, 1) ?: 0
+        // **assets から読む。** `R.raw.*` はコンパイル時に解決されるので、
+        // 音を git に置かない方針だと**ビルドごと通らなくなる**
+        // （立ち絵と同じ理由。device/android/README.md）。
+        // 無ければ鳴らないだけで、会話はそのまま動く。
+        wakeSound = try {
+            assets.openFd("wake.mp3").use { sounds?.load(it, 1) ?: 0 }
+        } catch (_: Exception) {
+            Log.w(TAG, "起動音がありません。鳴りませんが会話は動きます。")
+            0
+        }
 
         // 読み上げが聞こえる大きさで出す。
         (getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.mode =

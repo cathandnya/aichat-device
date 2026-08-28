@@ -74,6 +74,10 @@ cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
 
 読み上げには VOICEVOX が要る。
 
+**ウェイクワードに気づいたときの音**は `web/public/wake.mp3`。
+立ち絵と同じく git に入れていないので、clone しただけでは鳴らない
+（鳴らないだけで、会話はそのまま動く）。
+
 ```bash
 docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 ```

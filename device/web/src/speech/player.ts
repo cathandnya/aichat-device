@@ -16,7 +16,7 @@ export class AudioPlayer {
   /** 「やめる」のたびに増やす。古い世代の音は鳴らさない。 */
   private generation = 0;
   /** 復号済みの効果音。鳴らすたびに取りに行かない。 */
-  private readonly chimes: Record<string, Promise<AudioBuffer>> = {};
+  private readonly chimes: Record<string, Promise<AudioBuffer | null>> = {};
 
   /**
    * 鳴らしている最中かどうかが変わったときに呼ぶ。
@@ -86,11 +86,20 @@ export class AudioPlayer {
     const context = this.ensureContext();
     if (context.state === "suspended") await context.resume().catch(() => {});
 
+    // **音が無くても壊れない。** 素材は git に入れていないので、
+    // clone しただけの状態では 404 になる（public/README.md）。
+    // 鳴らないだけで、会話はそのまま動く。
     this.chimes[url] ??= fetch(url)
-      .then((response) => response.arrayBuffer())
-      .then((bytes) => context.decodeAudioData(bytes));
+      .then((response) => {
+        if (!response.ok) throw new Error(`${url} が見つかりません`);
+        return response.arrayBuffer();
+      })
+      .then((bytes) => context.decodeAudioData(bytes))
+      .catch(() => null);
 
     const buffer = await this.chimes[url];
+    if (!buffer) return;
+
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
