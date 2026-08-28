@@ -53,24 +53,45 @@ adb shell am start -n jp.local.aichat.device/.MainActivity \
 
 ## 立ち絵を入れる
 
-**アプリに焼き込まない。** 入れ替えるのにビルドが要らないのと、素材を
-git に入れない方針（[web/public/character/README.md](../web/public/character/README.md)）に
-揃えるため。
+`app/src/main/assets/character/` に置く。**git には入れない**
+（素材の配布元の規約を確かめていない。[web/public/character/README.md](../web/public/character/README.md)
+と同じ方針で `.gitignore` 済み）。
 
-```bash
-adb push normal.png mouse.0.png mouse.1.png mouse.2.png \
-  /sdcard/Android/data/jp.local.aichat.device/files/character/
-```
+**`drawable` ではなく `assets`。** `drawable` に置くと `R.drawable.*` が
+コンパイル時に要るので、**画像が無いとビルドごと通らない**。clone した
+だけの人が build できなくなってしまう。`assets` なら名前で引くだけなので、
+無ければ顔が出ないだけで済む。
 
 | ファイル | 中身 |
 |---|---|
-| `normal.png` | 土台。**口が描かれていない** |
-| `mouse.0.png` | 閉じた口。既定 |
-| `mouse.1.png` | 半開き |
-| `mouse.2.png` | 大きく開く |
+| `normal.png` | 土台。**目も口も描かれていない** |
+| `normal_eye.png` / `normal_eye_close.png` | 目。まばたきで入れ替える |
+| `mouse_0.png` | 閉じた口。既定 |
+| `mouse_1.png` | 半開き |
+| `mouse_2.png` | 大きく開く |
 
-**4枚とも同じ大きさにすること。** 重ねて位置を合わせるので、1枚でも違うと口がずれる。
-**画像が無くても壊れない**（顔が出ないだけで、声はそのまま動く）。
+表情は土台と目を差し替える（[docs/08](../../docs/08-emotion.md) の 5 種類）。
+`happy` / `sad` / `angry` / `surprised` も同じ組を用意する。
+**口は表情で変わらないので共通の 1 組**でよい。
+
+- **全部同じ大きさにすること**（480x480）。重ねて位置を合わせるので、
+  1 枚でも違うとずれる
+- **画像が無くても壊れない**（顔が出ないだけで、声はそのまま動く）。
+  表情の絵が欠けているときは `normal` に落ちる
+
+## 見た目だけ試す
+
+サーバーを介さず状態と表情を差し込める。話しかけて音声認識を通さなくても、
+登場・口パク・まばたきが見られる。
+
+```bash
+adb shell am force-stop jp.local.aichat.device
+adb shell am start -n jp.local.aichat.device/.MainActivity \
+  --es mock speaking --es emotion happy
+```
+
+`mock` は `listening` / `following` / `thinking` / `speaking` / `error`。
+`speaking` のときだけ口が動く（音は鳴らない）。
 
 ## 実機で最初に見ること
 

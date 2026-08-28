@@ -3,45 +3,70 @@ package jp.local.aichat.device
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import java.io.File
 
 /**
- * 顔。**土台に口を1枚重ねる。**
+ * 顔。**土台に目と口を重ねる。**
  *
- * 土台には口が描かれていない。黙っているときは 0（閉じ）を重ねる——
- * 「重ねていない」わけではない。ブラウザ版（web/src/character/mouth.ts）と
- * 同じ作り。
+ * 土台には目も口も描かれていない。3 枚とも同じ 480x480 の座標系で
+ * 位置が合わせてあるので、そのまま重ねればよい。
  *
- * ### 画像はアプリに焼き込まない
+ *     normal.png            土台（目も口も無い）
+ *     normal_eye.png        開いた目
+ *     normal_eye_close.png  閉じた目
+ *     mouse_0.png           閉じた口（既定）
+ *     mouse_1.png           半開き
+ *     mouse_2.png           大きく開く
  *
- * `getExternalFilesDir("character")` から読む。**入れ替えるのにビルドが
- * 要らない**のと、素材を git に入れない方針（web/public/character/README.md）に
- * 揃えるため。
+ * **口は表情で変わらないので共通の 1 組。** 土台と目だけ表情ごとに
+ * 差し替える（docs/08 の 5 種類）。
  *
- *     adb push normal.png /sdcard/Android/data/jp.local.aichat.device/files/character/
+ * ### なぜ `assets` で、`drawable` ではないか ★
+ *
+ * **素材は git に入れない**（配布元の規約を確かめていない。
+ * `.gitignore` と web/public/character/README.md）。
+ *
+ * `drawable` に置くと `R.drawable.happy` がコンパイル時に解決されるので、
+ * **画像が無いとビルドが通らない**。clone しただけの人が build できなく
+ * なってしまう。`assets` なら名前で引くだけなので、無ければ実行時に
+ * `null` が返って顔が出ないだけで済む。
+ *
+ * ### 読み込みは遅らせる
+ *
+ * 5 表情 × 3 枚を起動時に全部展開すると、480x480 の PNG が 15 枚ぶん
+ * メモリに乗る。**使われた表情だけ**読んで覚える。
  *
  * **画像が無くても壊れない。** 顔が出ないだけで、声はそのまま動く。
  */
 class Face(context: Context) {
 
-    private val dir = File(context.getExternalFilesDir(null), "character")
+    private val assets = context.assets
+    private val cache = HashMap<String, Bitmap?>()
 
-    val base: Bitmap? = load("normal.png")
-    private val mouths: List<Bitmap?> = listOf(
-        load("mouse.0.png"),
-        load("mouse.1.png"),
-        load("mouse.2.png"),
-    )
+    /** 土台。表情ごと。絵が無ければ `normal` に落ちる。 */
+    fun base(emotion: Emotion): Bitmap? =
+        load("${emotion.slug}.png") ?: load("normal.png")
 
-    val usable: Boolean get() = base != null
+    /** 目。閉じ絵が無ければ開いたまま（まばたきしないだけで壊れない）。 */
+    fun eye(emotion: Emotion, closed: Boolean): Bitmap? {
+        val suffix = if (closed) "_eye_close" else "_eye"
+        return load("${emotion.slug}$suffix.png")
+            ?: load("${emotion.slug}_eye.png")
+            ?: load("normal$suffix.png")
+            ?: load("normal_eye.png")
+    }
 
-    fun mouth(index: Int): Bitmap? = mouths.getOrNull(index) ?: mouths.firstOrNull()
+    fun mouth(index: Int): Bitmap? =
+        load("mouse_${index.coerceIn(0, 2)}.png") ?: load("mouse_0.png")
 
-    private fun load(name: String): Bitmap? = try {
-        val file = File(dir, name)
-        if (file.isFile) BitmapFactory.decodeFile(file.path) else null
-    } catch (_: Exception) {
-        null
+    /** 顔を出せるか。土台が読めれば描ける。 */
+    val usable: Boolean get() = load("normal.png") != null
+
+    private fun load(name: String): Bitmap? = cache.getOrPut(name) {
+        try {
+            assets.open("character/$name").use { BitmapFactory.decodeStream(it) }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     companion object {
@@ -63,5 +88,12 @@ class Face(context: Context) {
 
         /** 黙っているときの口。 */
         const val CLOSED = 0
+
+        /** まばたきで目を閉じている長さ。**短くないと眠そうに見える。** */
+        const val BLINK_MS = 140L
+
+        /** まばたきの間隔。この幅でばらつかせる。規則的だと機械に見える。 */
+        const val BLINK_MIN_MS = 2_000L
+        const val BLINK_MAX_MS = 6_000L
     }
 }

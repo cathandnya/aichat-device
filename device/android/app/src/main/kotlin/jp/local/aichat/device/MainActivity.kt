@@ -41,6 +41,18 @@ class MainActivity : Activity() {
     private var wakeSound = 0
     private var mouthStep = 0
 
+    /** 登場の位置と速度。バネで動かす。0=画面の外、1=定位置。 */
+    private var appear = 0f
+    private var appearVelocity = 0f
+
+    /** まばたき。次に閉じる時刻と、閉じ終わる時刻（`uptimeMillis`）。 */
+    private var blinkAt = 0L
+    private var blinkUntil = 0L
+
+    /** `--es mock` で差し込んだ状態。**入っている間はサーバーに従わない。** */
+    private var mockState: State? = null
+    private var mockSpeaking = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -70,6 +82,7 @@ class MainActivity : Activity() {
             start()
         }
 
+        applyMock(intent?.getStringExtra("mock"), intent?.getStringExtra("emotion"))
         tick()
     }
 
@@ -121,7 +134,36 @@ class MainActivity : Activity() {
         return prefs.getString("server", DEFAULT_SERVER) ?: DEFAULT_SERVER
     }
 
+    /**
+     * 見た目だけを試すための口。**サーバーを介さず状態を差し込む。**
+     *
+     *     adb shell am start -n jp.local.aichat.device/.MainActivity \
+     *       --es mock speaking --es emotion happy
+     *
+     * 登場やまばたきを見るのに、いちいち話しかけて音声認識を通すのは
+     * 手間がかかる（実際に「ずんだもん」が「値段もん」と聞こえて
+     * 発火しないこともある）。`--es mock` で直に切り替えられるようにする。
+     *
+     * **`speaking` を渡すと口も動く。** 音は鳴らないが、パラパラの
+     * 見え方はこれで確かめられる。`--es emotion` は表情。
+     */
+    private fun applyMock(name: String?, emotion: String?) {
+        mockState = name?.let { State.of(it) }
+        mockSpeaking = name == "speaking"
+        emotion?.let {
+            view.emotion = Emotion.of(it)
+            Log.i(TAG, "mock emotion: ${view.emotion}")
+        }
+        mockState?.let {
+            view.state = it
+            Log.i(TAG, "mock: $it")
+        }
+        view.invalidate()
+    }
+
     private fun onEvent(event: Event) {
+        // mock 中はサーバーの状態で上書きしない。
+        if (mockState != null && event is Event.StateChanged) return
         when (event) {
             is Event.StateChanged -> {
                 view.state = event.state
@@ -165,7 +207,7 @@ class MainActivity : Activity() {
      * 両側にずれる（合成の待ちぶん早く立ち、送り終えた時点で降りる）。
      */
     private fun tick() {
-        val speaking = player.playing
+        val speaking = player.playing || mockSpeaking
         mouthStep = if (speaking) (mouthStep + 1) % Face.PATTERN.size else 0
         view.mouth = if (speaking) Face.PATTERN[mouthStep] else Face.CLOSED
         view.level = mic?.level ?: 0f
@@ -176,10 +218,74 @@ class MainActivity : Activity() {
         view.hour = now.get(Calendar.HOUR).toFloat()
         view.minute = now.get(Calendar.MINUTE) + second / 60f
         view.second = second
+
+        stepAppear()
+        stepBlink()
         view.invalidate()
 
         ui.postDelayed({ tick() }, Face.INTERVAL_MS)
     }
+
+    /**
+     * 登場をバネで動かす。
+     *
+     * **行き過ぎて戻る**ので、`appear` は 1 を超えることがある。
+     * 単なる補間だとぬるっと出るだけで、呼びかけに応えて跳ね起きる
+     * 感じにならない。
+     *
+     * 待受に戻るときはバネを使わず、まっすぐ引っ込める。跳ねながら
+     * 消えると未練がましく見える。
+     */
+    private fun stepAppear() {
+        val target = if (view.state == State.IDLE) 0f else 1f
+        val dt = Face.INTERVAL_MS / 1000f
+
+        if (target == 1f) {
+            // ばね（減衰つき）。
+            //
+            // **硬さは刻みの粗さに縛られる。** 120ms ごとの計算なので、
+            // stiffness * dt^2 が 1 を超えると積分が発散する。実際に
+            // 170 で試したら appear が 1 フレームごとに桁を増やし、
+            // 4 億まで飛んで顔が画面の外へ消えた。
+            val stiffness = 40f
+            val damping = 9f
+            val accel = (target - appear) * stiffness - appearVelocity * damping
+            appearVelocity += accel * dt
+            appear += appearVelocity * dt
+            // 念のため。ここが壊れると顔ごと消えて原因が分かりにくい。
+            appear = appear.coerceIn(0f, 1.5f)
+        } else {
+            // 引っ込むときは素直に。跳ねながら消えると未練がましい。
+            appearVelocity = 0f
+            appear += (target - appear) * 0.35f
+        }
+
+        if (target == 0f && appear < 0.001f) {
+            appear = 0f
+            appearVelocity = 0f
+        }
+        view.appear = appear
+    }
+
+    /**
+     * まばたき。**間隔をばらつかせる。**
+     *
+     * 等間隔だと機械が点滅しているように見える。閉じている時間は
+     * 短く保つ（長いと眠そうになる）。
+     */
+    private fun stepBlink() {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (blinkAt == 0L) blinkAt = now + nextBlinkDelay()
+
+        if (now >= blinkAt) {
+            blinkUntil = now + Face.BLINK_MS
+            blinkAt = now + nextBlinkDelay()
+        }
+        view.eyeClosed = now < blinkUntil
+    }
+
+    private fun nextBlinkDelay(): Long =
+        Face.BLINK_MIN_MS + (Math.random() * (Face.BLINK_MAX_MS - Face.BLINK_MIN_MS)).toLong()
 
     private fun prepareSounds() {
         sounds = SoundPool.Builder()

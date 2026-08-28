@@ -19,7 +19,11 @@ device/android/app/build/
 # SDK の場所は機械ごと。追跡しない。
 device/android/local.properties
 # 立ち絵。web と同じく git に入れない。
-device/android/app/src/main/res/drawable/normal.png
+# **assets に置く。** drawable だと R.drawable.* がコンパイル時に要るので、
+# 画像が無いとビルドごと通らなくなる（clone しただけの人が困る）。
+device/android/app/src/main/assets/character/*.png
+# 素材の元ファイル。
+device/android/zundamon/
 
 # --- macOS ---
 .DS_Store

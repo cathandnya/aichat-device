@@ -34,6 +34,21 @@ class FaceView(context: Context) : View(context) {
     /** 0〜1。声を受け付けている間だけ描く。 */
     var level: Float = 0f
 
+    /**
+     * キャラクターの登場ぐあい。0=画面の外、1=定位置。
+     *
+     * **1 を超える**ことがある（バネで行き過ぎて戻る）。描画側は
+     * それを前提にする。
+     */
+    var appear: Float = 0f
+    /** まばたき。 */
+    var eyeClosed: Boolean = false
+    /** いまの表情。サーバーからタグで届く想定（docs/08）。 */
+    var emotion: Emotion = Emotion.NEUTRAL
+
+    /** 時計の濃さ。`appear` と入れ替わりで薄くなる。 */
+    private var clockAlpha: Int = 255
+
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
@@ -48,22 +63,34 @@ class FaceView(context: Context) : View(context) {
         drawLamp(canvas, w, h)
     }
 
-    /** 顔は中央に、画面の高さいっぱいに。 */
+    /**
+     * 顔。**画面いっぱいに、土台・目・口の順で重ねる。**
+     *
+     * 絵は 480x480 の画面に合わせて描かれているので、拡大縮小せず
+     * そのまま貼る。3 枚とも同じ座標系なので、位置合わせは要らない。
+     *
+     * `appear` が 1 未満のときは下から出てくる途中。**下へずらして描く**。
+     */
     private fun drawFace(canvas: Canvas) {
+        if (appear <= 0f) return
         val current = face ?: return
-        val base = current.base ?: return
-
-        val scale = (height * 0.72f) / base.height
-        val drawW = (base.width * scale).toInt()
-        val drawH = (base.height * scale).toInt()
-        val left = (width - drawW) / 2
-        val top = (height - drawH) / 2
+        val base = current.base(emotion) ?: return
 
         src.set(0, 0, base.width, base.height)
-        dst.set(left, top, left + drawW, top + drawH)
+        dst.set(0, 0, width, height)
+
+        val saved = canvas.save()
+        // 画面の高さぶん下から上がってくる。
+        canvas.translate(0f, height * (1f - appear))
+        // 出かかりは薄く。**下端で唐突に現れるのを防ぐ。**
+        paint.alpha = (255 * appear.coerceIn(0f, 1f)).toInt()
 
         canvas.drawBitmap(base, src, dst, paint)
+        current.eye(emotion, eyeClosed)?.let { canvas.drawBitmap(it, src, dst, paint) }
         current.mouth(mouth)?.let { canvas.drawBitmap(it, src, dst, paint) }
+
+        paint.alpha = 255
+        canvas.restoreToCount(saved)
     }
 
     /**
@@ -77,7 +104,11 @@ class FaceView(context: Context) : View(context) {
      * 立ち絵を殺さないようにする。
      */
     private fun drawClock(canvas: Canvas, w: Float, h: Float) {
-        if (state != State.IDLE) return
+        // **キャラクターと入れ替わりで消える。** 状態で切ると、
+        // 顔が出てくる途中に時計が瞬間で消えて雑に見える。
+        val fade = (1f - appear).coerceIn(0f, 1f)
+        if (fade <= 0.01f) return
+        clockAlpha = (255 * fade).toInt()
 
         val cx = w / 2f
         val cy = h / 2f
@@ -117,9 +148,12 @@ class FaceView(context: Context) : View(context) {
         // 秒針の色を内側に重ねて、秒針が軸から生えて見えるようにする。
         paint.style = Paint.Style.FILL
         paint.color = Color.parseColor("#c3cad8")
+        paint.alpha = clockAlpha
         canvas.drawCircle(cx, cy, w * 0.018f, paint)
         paint.color = SECOND_HAND
+        paint.alpha = clockAlpha
         canvas.drawCircle(cx, cy, w * 0.008f, paint)
+        paint.alpha = 255
     }
 
     /**
@@ -133,6 +167,7 @@ class FaceView(context: Context) : View(context) {
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeWidth = w * 0.014f
         paint.color = TICK_MAJOR
+        paint.alpha = clockAlpha
 
         for (i in 0 until 12) {
             // 12・3・6・9 は数字を置くので、目盛りは打たない。
@@ -151,13 +186,15 @@ class FaceView(context: Context) : View(context) {
                 paint,
             )
         }
+        paint.alpha = 255
         paint.style = Paint.Style.FILL
     }
 
     /** 12・3・6・9 だけ。**縁に寄せて顔を避ける。** */
     private fun drawNumerals(canvas: Canvas, cx: Float, cy: Float, radius: Float, w: Float) {
         paint.color = TICK_MAJOR
-        paint.textSize = w * 0.105f
+        paint.alpha = clockAlpha
+        paint.textSize = w * 0.126f
         paint.textAlign = Paint.Align.CENTER
         paint.isFakeBoldText = true
 
@@ -171,6 +208,7 @@ class FaceView(context: Context) : View(context) {
             canvas.drawText(label, x, y - (paint.ascent() + paint.descent()) / 2f, paint)
         }
         paint.isFakeBoldText = false
+        paint.alpha = 255
     }
 
     private fun drawHand(
@@ -190,12 +228,14 @@ class FaceView(context: Context) : View(context) {
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeWidth = width
         paint.color = color
+        paint.alpha = clockAlpha
         // 少しだけ後ろへ伸ばすと、軸に刺さって見える。
         canvas.drawLine(
             cx - cos * length * 0.12f, cy - sin * length * 0.12f,
             cx + cos * length, cy + sin * length,
             paint,
         )
+        paint.alpha = 255
         paint.style = Paint.Style.FILL
     }
 
