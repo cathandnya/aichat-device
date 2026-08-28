@@ -37,3 +37,6 @@ device/web/public/wake.mp3
 device/android/app/src/main/assets/wake.mp3
 
 echo
+
+# 実機を追うときの出力先。追跡しない。
+device/server/server.log

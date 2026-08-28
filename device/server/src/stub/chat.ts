@@ -58,6 +58,30 @@ const SOURCES = [
   { uri: "https://vertexaisearch.example/redirect/def", title: "weathernews.jp" },
 ];
 
+/**
+ * Hono を通らない経路（WebSocket）用。**同じ固定応答を素の Response で返す。**
+ *
+ * `stub` の分岐は HTTP のルーティングにしかなく、デバイスからの会話は
+ * すべて WebSocket なので**素通りして課金されていた**。
+ */
+export function stubChatResponse(scenario: Scenario = "normal"): Response {
+  const text =
+    scenario === "long" ? LONG : scenario === "emotion" ? EMOTION : NORMAL;
+
+  // `sseMessage` は Uint8Array を返すので、そのまま流す。
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      for (const chunk of chunks(text)) {
+        controller.enqueue(sseMessage("delta", { text: chunk }));
+        await sleep(40);
+      }
+      controller.enqueue(sseMessage("done", { stopReason: "end_turn" }));
+      controller.close();
+    },
+  });
+  return new Response(body, { headers: SSE_HEADERS });
+}
+
 export function handleStubChat(c: Context): Response {
   const scenario = pickScenario(c.req.query("scenario"));
 

@@ -24,6 +24,7 @@
  */
 
 import { handleChat } from "../ai/chat.ts";
+import { stubChatResponse } from "../stub/chat.ts";
 import { looksComplete } from "../ai/complete.ts";
 import { transcribe } from "../ai/stt.ts";
 import {
@@ -271,9 +272,10 @@ export class Session {
       transcribe,
     )
       .then(({ fired, heard }) => {
-        // **当たったときだけ残す。** 誤起動を追うのに要る。
-        // 外れたぶんまで出すと 2 秒ごとに空行が流れて読めなくなる。
-        if (fired) console.log(`[wake] 聞こえた: "${heard}" 状態: ${this.state}`);
+        // **外れたぶんも出す。** 反応が悪いときに要るのは
+        // 「何と聞こえて外したか」のほう——実際、遠くから呼ぶと
+        // 「ずんだもん」が「17」に化けていた。無音は出さない。
+        if (heard) console.log(`[wake] ${fired ? "★" : "  "} 「${heard}」`);
         // 判定の間に状態が変わっていることがある。
         if (fired && (this.state === "idle" || this.state === "error")) {
           this.startChat();
@@ -600,9 +602,6 @@ export class Session {
     //   溜めが長すぎる → 下の `tooLongToWait` で諦める
     //
     // 以前は 1 回だけにしていたが、2 度目の言い淀みで普通に切られた。
-    console.log(
-      `[speech] 聞き取り: 「${question}」 完了=${looksComplete(question)}`,
-    );
     if (this.giveUpWaiting) {
       this.giveUpWaiting = false;
     } else if (!looksComplete(question) && !this.tooLongToWait()) {
@@ -681,7 +680,16 @@ export class Session {
 
     let response: Response;
     try {
-      response = await handleChat({ messages }, controller.signal, runtimeFrom(this.config));
+      // **`stub` をここでも見る。**
+      //
+      // `stub` の分岐は HTTP のルーティング（app.ts）にしかなく、
+      // WebSocket 経路はそこを通らない。**「stub のつもりで課金されて
+      // いた」**ことに実機で気づいた。デバイスからの会話はすべてこの
+      // 経路なので、いちばん課金が乗るところが素通りしていた。
+      response =
+        this.config.mode === "stub"
+          ? stubChatResponse()
+          : await handleChat({ messages }, controller.signal, runtimeFrom(this.config));
     } catch (error) {
       if (!controller.signal.aborted) {
         this.fail(error instanceof Error ? error.message : "AI の呼び出しに失敗しました。");
@@ -851,7 +859,6 @@ export class Session {
   // --- 補助 ---
 
   private setState(state: DeviceState, status: string): void {
-    if (this.state !== state) console.log(`[state] ${this.state} -> ${state}`);
     this.state = state;
     this.io.send({ type: "state", state, status });
   }
