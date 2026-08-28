@@ -87,8 +87,15 @@ export class AudioPlayer {
     if (context.state === "suspended") await context.resume().catch(() => {});
 
     // **音が無くても壊れない。** 素材は git に入れていないので、
-    // clone しただけの状態では 404 になる（public/README.md）。
-    // 鳴らないだけで、会話はそのまま動く。
+    // clone しただけの状態では鳴らせない（device/README.md）。
+    //
+    // **404 とは限らない。** Vite は開発時に SPA のフォールバックで
+    // `index.html` を返すので、`response.ok` は true になり
+    // `decodeAudioData` のほうが失敗する。どちらの転び方も同じ
+    // `catch` で拾って、鳴らさずに進む。
+    //
+    // 失敗も含めてキャッシュするのが肝心。**失敗した Promise を残すと、
+    // 呼ばれるたびに同じ例外を投げ続ける。**
     this.chimes[url] ??= fetch(url)
       .then((response) => {
         if (!response.ok) throw new Error(`${url} が見つかりません`);
