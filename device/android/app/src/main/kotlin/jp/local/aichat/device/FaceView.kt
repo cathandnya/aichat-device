@@ -31,7 +31,7 @@ class FaceView(context: Context) : View(context) {
     var hour: Float = 0f
     var minute: Float = 0f
     var second: Float = 0f
-    /** 0〜1。声を受け付けている間だけ描く。 */
+    /** 0〜1 の実効音量。**輪の太さに出る。** */
     var level: Float = 0f
 
     /**
@@ -59,7 +59,6 @@ class FaceView(context: Context) : View(context) {
 
         drawFace(canvas)
         drawClock(canvas, w, h)
-        drawLevel(canvas, w, h)
         drawLamp(canvas, w, h)
     }
 
@@ -240,40 +239,29 @@ class FaceView(context: Context) : View(context) {
     }
 
     /**
-     * 声の大きさ。**届いていることの証。**
-     *
-     * 状態の文字だけだと、本当に音が届いているのか、黙って固まったのかが
-     * 分からない。ここが動けば届いている。
-     */
-    private fun drawLevel(canvas: Canvas, w: Float, h: Float) {
-        if (!state.hearing) return
-
-        val full = w * 0.5f
-        val length = full * level.coerceIn(0f, 0.3f) / 0.3f
-        val y = h * 0.86f
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeWidth = w * 0.02f
-
-        paint.color = Color.parseColor("#232733")
-        canvas.drawLine(w / 2 - full / 2, y, w / 2 + full / 2, y, paint)
-
-        if (length > 0f) {
-            paint.color = lampColor() ?: HEARING_FALLBACK
-            canvas.drawLine(w / 2 - full / 2, y, w / 2 - full / 2 + length, y, paint)
-        }
-        paint.style = Paint.Style.FILL
-    }
-
-    /**
-     * 画面の縁の光。**声を受け付けている間だけ強く光る。**
+     * 画面の縁の光。**色は状態、太さは声の大きさ。**
      *
      * 据え置きの機械は離れた場所から見るので、文字の色が変わるだけでは
      * 気づけない。丸い画面なので、そのまま輪にする。
+     *
+     * **声の大きさもここで出す。** 「届いていることの証」——状態の色だけ
+     * だと、本当に音が届いているのか、黙って固まったのかが分からない。
+     * ここが動けば届いている。
      */
     private fun drawLamp(canvas: Canvas, w: Float, h: Float) {
         val color = lampColor() ?: return
-        val stroke = w * 0.03f
+
+        // **色は状態のもの。声の大きさは太さだけで出す。**
+        //
+        // 色にも混ぜると、状態の見分け（青＝聞いている／緑＝続けてどうぞ）が
+        // 音量で濁る。色は状態、太さは音量、と役割を分ける。
+        //
+        // 以前は画面の下に棒を引いていたが、**丸い画面では下に寄せるほど
+        // 幅が取れず**、離れて見ると動いているのが分からなかった。
+        // 縁は一番長く取れる場所。
+        val loud = if (state.hearing) (level / LEVEL_FULL).coerceIn(0f, 1f) else 0f
+        val stroke = w * (0.03f + 0.045f * loud)
+
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = stroke
         paint.color = color
@@ -282,8 +270,15 @@ class FaceView(context: Context) : View(context) {
     }
 
     private companion object {
-        /** `hearing` のときは必ず色が付くが、型の上では分からないので置く。 */
-        val HEARING_FALLBACK: Int = Color.parseColor("#5aa9ff")
+        /**
+         * 輪が振り切る音量。
+         *
+         * **実測から決めた。** 端末側で 4 倍に持ち上げたあとの値で、
+         * 普通の話し声が rms 0.03 ほど、暗騒音が 0.004 ほど。
+         * 以前は 0.3 にしていたので、話しても 1 割しか動かなかった。
+         */
+        const val LEVEL_FULL = 0.06f
+
 
         val TICK_MAJOR: Int = Color.parseColor("#8a91a0")
         val SECOND_HAND: Int = Color.parseColor("#c96a5a")
