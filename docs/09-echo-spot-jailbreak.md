@@ -245,6 +245,50 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 繋ぎ先と立ち絵の入れ方は [`device/android/README.md`](../device/android/README.md)。
 
+## 据え置きの機械にする ★
+
+**電源を入れたら勝手に立ち上がり、余計なものを出さない。** どれも
+`adb` で入れる**端末側の設定**なので、リポジトリには残らない。
+初期化したら入れ直すことになる。
+
+```bash
+# 1. このアプリをホームにする
+adb shell cmd package set-home-activity jp.local.aichat.device/.MainActivity
+
+# 2. **標準ランチャーを止める。ここが要点。**
+adb shell pm disable-user --user 0 com.android.launcher3
+
+# 3. ロック画面を無効にする
+adb shell locksettings set-disabled true
+adb shell settings put secure lockscreen.disabled 1
+
+# 4. 通知を出さない
+adb shell cmd notification set_dnd none
+adb shell settings put global heads_up_notifications_enabled 0
+adb shell settings put secure lock_screen_show_notifications 0
+```
+
+**2 を飛ばすと動かない。** ホームの候補が 2 つ（標準ランチャーと
+このアプリ）あると、起動のたびに**「どのアプリで開きますか」の選択画面**
+（`ResolverActivity`）が出て止まる。実際にそうなった。
+
+`BootReceiver`（`BOOT_COMPLETED`）もアプリに入れてあるが、**ホームに
+するほうが確実**。Android 10 以降はバックグラウンドからの Activity 起動に
+制限があり、`BOOT_COMPLETED` からの `startActivity` は弾かれることがある。
+ホームなら OS が起動時に必ず呼ぶ。
+
+再起動して、設定が残ることと自動で立ち上がることを確かめた。
+
+> **戻すとき**
+>
+> ```bash
+> adb shell pm enable com.android.launcher3
+> adb shell locksettings set-disabled false
+> adb shell cmd notification set_dnd off
+> ```
+
+---
+
 ## 実際に入れてみて詰まったところ ★
 
 **どれも実機でしか出ない。** 素の Android の知識だけだと当たらない。
