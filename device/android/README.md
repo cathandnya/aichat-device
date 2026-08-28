@@ -51,6 +51,25 @@ adb shell am start -n jp.local.aichat.device/.MainActivity \
 > 持たず、OkHttp が使う `InetAddress` からは引けない（API 30 の実機で確認）。
 > 名前で書くと、アプリのデータを消したときに繋がらなくなる。
 
+### ホームアプリにしたあとは `--es` が効かない ★
+
+据え置き用にホームへ設定すると（[docs/09](../../docs/09-echo-spot-jailbreak.md)
+の「据え置きの機械にする」）、**`--es server` を渡しても届かない。**
+`force-stop` してから起動しても、保存された古い接続先のままになる。
+
+保存先を直接書き換える。
+
+```bash
+adb shell am force-stop jp.local.aichat.device
+adb shell "run-as jp.local.aichat.device \
+  sed -i 's|ws://192.168.1.20:9801/ws|ws://192.168.1.2:9801/ws|' \
+  /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml"
+adb shell am start -n jp.local.aichat.device/.MainActivity
+```
+
+**前の接続先のサーバーが動いていると、そちらに繋ぎ直してしまう**
+ことがある。切り替えるときは古いほうを止めておく。
+
 ## 立ち絵を入れる
 
 `app/src/main/assets/character/` に置く。**git には入れない**
