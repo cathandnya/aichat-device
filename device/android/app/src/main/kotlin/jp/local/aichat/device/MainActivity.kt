@@ -213,7 +213,17 @@ class MainActivity : Activity() {
     private companion object {
         const val TAG = "aichat"
         const val REQUEST_MIC = 1
-        const val DEFAULT_SERVER = "ws://pino.local:9801/ws"
+        /**
+         * **IP で書く。`.local` は使えない。**
+         *
+         * Android は mDNS をアプリの層（`NsdManager`）にしか持たないので、
+         * `InetAddress` 経由で引く OkHttp からは `pino.local` が解決できない
+         * （API 30 の実機で確認）。名前で書いておくと、アプリのデータを
+         * 消したときに既定へ戻って**繋がらない機械**になる。
+         *
+         * 引っ越したら `--es server` で上書きする（SharedPreferences に残る）。
+         */
+        const val DEFAULT_SERVER = "ws://192.168.1.2:9801/ws"
         val CLOCK = SimpleDateFormat("HH:mm", Locale.JAPAN)
     }
 }

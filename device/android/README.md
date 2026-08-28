@@ -33,15 +33,23 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 繋ぎ先を変える
 
-既定は `ws://pino.local:9801/ws`。焼き込んでいないので、名前が変わっても
+既定は `ws://192.168.1.2:9801/ws`。焼き込んでいないので、引っ越しても
 建て直さずに済む。
 
 ```bash
+adb shell am force-stop jp.local.aichat.device
 adb shell am start -n jp.local.aichat.device/.MainActivity \
   --es server "ws://192.168.1.10:9801/ws"
 ```
 
 一度渡せば `SharedPreferences` に残る。
+
+> **先に `force-stop` する。** `singleTask` なので、起動したままだと
+> `--es` は既存のインスタンスに届くだけで、繋ぎ直さない。
+>
+> **`.local` は書かない。** Android は mDNS を `NsdManager` の層にしか
+> 持たず、OkHttp が使う `InetAddress` からは引けない（API 30 の実機で確認）。
+> 名前で書くと、アプリのデータを消したときに繋がらなくなる。
 
 ## 立ち絵を入れる
 
