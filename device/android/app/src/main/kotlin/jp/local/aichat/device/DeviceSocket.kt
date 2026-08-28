@@ -1,5 +1,6 @@
 package jp.local.aichat.device
 
+import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -44,6 +45,7 @@ class DeviceSocket(
         val request = Request.Builder().url(url).build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.i("aichat", "繋がりました")
                 retryMs = 1_000L
             }
 
@@ -64,7 +66,10 @@ class DeviceSocket(
                 retry()
             }
 
+            // **黙って落ちると切り分けができない。** 証明書・平文の禁止・
+            // 名前解決の失敗はどれもここに来るが、画面には何も出ない。
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.w("aichat", "繋がりません: ${t.javaClass.simpleName}: ${t.message}")
                 onEvent(Event.Closed)
                 retry()
             }

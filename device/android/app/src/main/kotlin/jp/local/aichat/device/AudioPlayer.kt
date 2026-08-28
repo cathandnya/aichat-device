@@ -102,11 +102,28 @@ class AudioPlayer {
             }
             // **鳴り終わるまで待つ。** 書き終えた時点ではまだ鳴っている。
             // ここで戻ると口パクが先に止まる。
+            //
+            // **`stop()` してから `playState` を見てはいけない。** `stop()` の
+            // 直後に状態は STOPPED になるので、待ちが素通りして `release()` が
+            // 未再生ぶんを捨ててしまう（**読み上げの最後が切れる**）。
+            // MODE_STREAM では再生位置が書いた長さに追いつくまで数える。
             if (mine == generation) {
-                track.stop()
-                while (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                // **フレーム数で数える。** playbackHeadPosition はサンプル数
+                // ではなくフレーム数を返すので、ステレオでは半分になる。
+                val total = pcm.samples.size / maxOf(1, pcm.channels)
+                var stalled = 0
+                while (mine == generation && track.playbackHeadPosition < total) {
+                    val before = track.playbackHeadPosition
                     Thread.sleep(20)
+                    // 進まなくなったら諦める。**永久に待たない。**
+                    if (track.playbackHeadPosition == before) {
+                        stalled += 1
+                        if (stalled > 25) break
+                    } else {
+                        stalled = 0
+                    }
                 }
+                track.stop()
             }
         } catch (_: Exception) {
             // 鳴らなくても止まらない。次の文へ進む。

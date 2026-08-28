@@ -15,9 +15,14 @@
 
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
 
+    <!--
+      サーバーは家の LAN にしか出ない。証明書を配って回るより、
+      平文の ws:// をそのまま通すほうが運用が軽い。
+    -->
     <application
         android:label="@string/app_name"
         android:allowBackup="false"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="false"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
 

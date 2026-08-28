@@ -23,6 +23,8 @@ import kotlin.math.sqrt
  * ここが効けば、読み上げ中も判定を続けられて**声で割り込める**ようになる。
  * 効くかどうかは端末次第なので、`aecEnabled` を見て実機で確かめること。
  */
+private const val GAIN = 4f
+
 class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
 
     private var record: AudioRecord? = null
@@ -102,8 +104,34 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
             }
             if (filled < frame.size) continue
 
+            amplify(frame, filled)
             level = rms(frame)
             onFrame(frame, filled)
+        }
+    }
+
+    /**
+     * 送る前に一律で持ち上げる。
+     *
+     * **Echo Spot は入力が小さい。** 実測で、普通の話し声が rms 0.008 ほど
+     * にしかならず、サーバーの「続けてどうぞ」の音量判定（暗騒音の 3 倍、
+     * 下限 0.015）を超えられなかった。ウェイクワードは書き起こしで判定
+     * するので通り、音量で判定する追い質問だけが落ちる、という形で出る。
+     *
+     * **AGC ではなく一律の倍率**にしてある。AGC は無音を底上げしてしまい、
+     * ウェイクワードの誤検出が増える（`attachEffects` の判断）。一律なら
+     * 暗騒音と声の比が変わらないので、その心配が無い。
+     * そもそもこの端末は効果チェーンを持たないので AGC は使えない。
+     */
+    private fun amplify(frame: ByteArray, length: Int) {
+        if (GAIN == 1f) return
+        var i = 0
+        while (i + 1 < length) {
+            val sample = ((frame[i + 1].toInt() shl 8) or (frame[i].toInt() and 0xff)).toShort()
+            val scaled = (sample * GAIN).toInt().coerceIn(-32768, 32767)
+            frame[i] = (scaled and 0xff).toByte()
+            frame[i + 1] = ((scaled shr 8) and 0xff).toByte()
+            i += 2
         }
     }
 

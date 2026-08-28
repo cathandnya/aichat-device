@@ -214,11 +214,19 @@ export class Session {
       runtimeFrom(this.config),
       transcribe,
     )
-      .then(({ fired }) => {
+      .then(({ fired, heard }) => {
+        // **当たったときだけ残す。** 誤起動を追うのに要る。
+        // 外れたぶんまで出すと 2 秒ごとに空行が流れて読めなくなる。
+        if (fired) console.log(`[wake] 聞こえた: "${heard}" 状態: ${this.state}`);
         // 判定の間に状態が変わっていることがある。
         if (fired && (this.state === "idle" || this.state === "error")) {
           this.startChat();
         }
+      })
+      // **握り潰さない。** ここが無いと `startChat` の例外が
+      // どこにも出ないまま消える（実機の切り分けで実際に詰まった）。
+      .catch((e) => {
+        console.error("[wake] 判定のあとで落ちました:", e);
       })
       .finally(() => {
         this.checking = false;
