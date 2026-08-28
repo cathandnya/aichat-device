@@ -135,9 +135,17 @@ class AudioPlayer(
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    // **VOICE_COMMUNICATION にする。** 録音側と対にすることで、
-                    // 端末のエコーキャンセルが参照信号を掴める。
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    // **MEDIA にする。**
+                    //
+                    // 元は VOICE_COMMUNICATION だった。録音側と対にすれば
+                    // 端末のエコーキャンセルが参照信号を掴める、という理屈
+                    // だったが、**この端末に AEC は無い**（実測で aecEnabled
+                    // は false、`0 Effect Chains`）ので、その利点は無い。
+                    //
+                    // 通話ストリームのままだと**音量ボタンが効かない**。
+                    // ボタンは既定でメディア音量を動かすので、別の系統を
+                    // 鳴らしていると変えられなかった。
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build(),
             )

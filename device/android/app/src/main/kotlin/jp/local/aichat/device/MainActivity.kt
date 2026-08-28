@@ -332,7 +332,7 @@ class MainActivity : Activity() {
             .setMaxStreams(2)
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build(),
             )
@@ -348,7 +348,11 @@ class MainActivity : Activity() {
             0
         }
 
-        // 読み上げが聞こえる大きさで出す。
+        // **音量ボタンを読み上げに向ける。**
+        // これが無いと、鳴っていないストリームの音量が動くだけで
+        // 「音量が変えられない」になる。
+        volumeControlStream = AudioManager.STREAM_MUSIC
+
         (getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.mode =
             AudioManager.MODE_NORMAL
     }

@@ -263,10 +263,19 @@ adb shell locksettings set-disabled true
 adb shell settings put secure lockscreen.disabled 1
 
 # 4. 通知を出さない
-adb shell cmd notification set_dnd none
 adb shell settings put global heads_up_notifications_enabled 0
 adb shell settings put secure lock_screen_show_notifications 0
 ```
+
+> **`cmd notification set_dnd none` は使わない。** 「すべて消音」なので
+> 通知だけでなく**音量スライダーごと無効になる**（設定アプリからも
+> 動かせなくなる）。実際にそうして「音量が変えられない」と気づいた。
+>
+> この端末はサードパーティのアプリが自分のものだけで、通知を出すのは
+> システムの常駐ぶん（充電状態など）くらい。それも全画面表示で隠れる
+> ので、DND を使わなくても実害は無い。
+>
+> すでに掛けてしまったときは `adb shell cmd notification set_dnd off`。
 
 **2 を飛ばすと動かない。** ホームの候補が 2 つ（標準ランチャーと
 このアプリ）あると、起動のたびに**「どのアプリで開きますか」の選択画面**
