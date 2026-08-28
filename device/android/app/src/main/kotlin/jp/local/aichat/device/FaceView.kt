@@ -6,6 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.view.View
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * 画面そのもの。**顔・縁の光・声の大きさ・時計だけ。**
@@ -25,7 +27,10 @@ class FaceView(context: Context) : View(context) {
     var face: Face? = null
     var state: State = State.IDLE
     var mouth: Int = Face.CLOSED
-    var clock: String = ""
+    /** 時計の針の位置。**分・秒は連続値**なので、針が滑らかに進む。 */
+    var hour: Float = 0f
+    var minute: Float = 0f
+    var second: Float = 0f
     /** 0〜1。声を受け付けている間だけ描く。 */
     var level: Float = 0f
 
@@ -34,10 +39,11 @@ class FaceView(context: Context) : View(context) {
         val h = height.toFloat()
 
         // 夜のテーブルに置くものなので、常に暗い。
-        canvas.drawColor(Color.parseColor("#0d0f14"))
+        // **真っ黒にする。** 丸い画面なので、縁のベゼルと地続きに見える。
+        canvas.drawColor(Color.BLACK)
 
         drawFace(canvas)
-        drawClock(canvas, w)
+        drawClock(canvas, w, h)
         drawLevel(canvas, w, h)
         drawLamp(canvas, w, h)
     }
@@ -60,12 +66,137 @@ class FaceView(context: Context) : View(context) {
         current.mouth(mouth)?.let { canvas.drawBitmap(it, src, dst, paint) }
     }
 
-    private fun drawClock(canvas: Canvas, w: Float) {
-        if (state != State.IDLE || clock.isEmpty()) return
-        paint.color = Color.parseColor("#8a91a0")
-        paint.textSize = w * 0.13f
+    /**
+     * 待受中のアナログ時計。**目盛りと針だけ。**
+     *
+     * 丸い画面なので、文字盤も丸のまま使う。数字は 12・3・6・9 の
+     * 4 つだけ置く。全部並べると 2.5 インチでは潰れるうえ、
+     * **顔と重なって読めなくなる**。
+     *
+     * 針は中心から外へ引く。顔の上に乗るので、色は控えめにして
+     * 立ち絵を殺さないようにする。
+     */
+    private fun drawClock(canvas: Canvas, w: Float, h: Float) {
+        if (state != State.IDLE) return
+
+        val cx = w / 2f
+        val cy = h / 2f
+        val radius = minOf(w, h) / 2f
+
+        drawTicks(canvas, cx, cy, radius, w)
+        drawNumerals(canvas, cx, cy, radius, w)
+
+        // 短針。**分ぶんだけ進める。** 3時ちょうどと3時59分で同じ位置に
+        // 見えると、時計として読めない。
+        drawHand(
+            canvas, cx, cy,
+            angle = (hour % 12f) / 12f * 360f + minute / 60f * 30f,
+            length = radius * 0.48f,
+            width = w * 0.030f,
+            color = Color.parseColor("#c3cad8"),
+        )
+        // 長針。**目盛りの少し内側まで伸ばす。**
+        drawHand(
+            canvas, cx, cy,
+            angle = minute / 60f * 360f,
+            length = radius * 0.70f,
+            width = w * 0.020f,
+            color = Color.parseColor("#c3cad8"),
+        )
+        // 秒針。**細く、色を変える。** 同じ色だと、離れて見たときに
+        // どれが分針か分からなくなる。
+        drawHand(
+            canvas, cx, cy,
+            angle = second / 60f * 360f,
+            length = radius * 0.78f,
+            width = w * 0.009f,
+            color = SECOND_HAND,
+        )
+
+        // 中心の軸。針の付け根を隠す。
+        // 秒針の色を内側に重ねて、秒針が軸から生えて見えるようにする。
+        paint.style = Paint.Style.FILL
+        paint.color = Color.parseColor("#c3cad8")
+        canvas.drawCircle(cx, cy, w * 0.018f, paint)
+        paint.color = SECOND_HAND
+        canvas.drawCircle(cx, cy, w * 0.008f, paint)
+    }
+
+    /**
+     * 5 分ごとの目盛り。**分目盛りは打たない。**
+     *
+     * 2.5 インチに 60 本並べると、離れて見たとき粒がにじんで
+     * 輪郭がぼやける。時刻を読むのに要るのは 5 分の刻みだけ。
+     */
+    private fun drawTicks(canvas: Canvas, cx: Float, cy: Float, radius: Float, w: Float) {
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = w * 0.014f
+        paint.color = TICK_MAJOR
+
+        for (i in 0 until 12) {
+            // 12・3・6・9 は数字を置くので、目盛りは打たない。
+            if (i % 3 == 0) continue
+
+            val radian = Math.toRadians((i * 30f - 90f).toDouble())
+            val cos = cos(radian).toFloat()
+            val sin = sin(radian).toFloat()
+
+            val outer = radius - w * 0.045f
+            val inner = outer - w * 0.055f
+
+            canvas.drawLine(
+                cx + cos * inner, cy + sin * inner,
+                cx + cos * outer, cy + sin * outer,
+                paint,
+            )
+        }
+        paint.style = Paint.Style.FILL
+    }
+
+    /** 12・3・6・9 だけ。**縁に寄せて顔を避ける。** */
+    private fun drawNumerals(canvas: Canvas, cx: Float, cy: Float, radius: Float, w: Float) {
+        paint.color = TICK_MAJOR
+        paint.textSize = w * 0.105f
         paint.textAlign = Paint.Align.CENTER
-        canvas.drawText(clock, w / 2f, w * 0.22f, paint)
+        paint.isFakeBoldText = true
+
+        val at = radius - w * 0.095f
+        for ((index, label) in NUMERALS) {
+            val radian = Math.toRadians((index * 30f - 90f).toDouble())
+            val x = cx + cos(radian).toFloat() * at
+            val y = cy + sin(radian).toFloat() * at
+            // drawText の y は baseline なので、字の高さの半分だけ下げて
+            // 中心に載せる。
+            canvas.drawText(label, x, y - (paint.ascent() + paint.descent()) / 2f, paint)
+        }
+        paint.isFakeBoldText = false
+    }
+
+    private fun drawHand(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        angle: Float,
+        length: Float,
+        width: Float,
+        color: Int,
+    ) {
+        val radian = Math.toRadians((angle - 90f).toDouble())
+        val cos = cos(radian).toFloat()
+        val sin = sin(radian).toFloat()
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = width
+        paint.color = color
+        // 少しだけ後ろへ伸ばすと、軸に刺さって見える。
+        canvas.drawLine(
+            cx - cos * length * 0.12f, cy - sin * length * 0.12f,
+            cx + cos * length, cy + sin * length,
+            paint,
+        )
+        paint.style = Paint.Style.FILL
     }
 
     /**
@@ -113,6 +244,12 @@ class FaceView(context: Context) : View(context) {
     private companion object {
         /** `hearing` のときは必ず色が付くが、型の上では分からないので置く。 */
         val HEARING_FALLBACK: Int = Color.parseColor("#5aa9ff")
+
+        val TICK_MAJOR: Int = Color.parseColor("#8a91a0")
+        val SECOND_HAND: Int = Color.parseColor("#c96a5a")
+
+        /** 置くのは 12・3・6・9 だけ。添字は 12 分割の位置。 */
+        val NUMERALS = listOf(0 to "12", 3 to "3", 6 to "6", 9 to "9")
     }
 
     private fun lampColor(): Int? = when (state) {
