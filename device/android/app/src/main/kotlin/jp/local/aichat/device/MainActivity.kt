@@ -13,9 +13,7 @@ import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.app.Activity
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.Calendar
 
 /**
  * 据え置きの画面。**顔と声だけ。**
@@ -106,11 +104,12 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 繋ぎ先。既定は `pino.local`。
+     * 繋ぎ先。既定は `DEFAULT_SERVER`。
      *
-     * 焼き込まずに置いておくのは、家のサーバーの名前が変わっても
+     * 焼き込まずに置いておくのは、家のサーバーが引っ越しても
      * ビルドし直さずに済むようにするため。
      *
+     *     adb shell am force-stop jp.local.aichat.device
      *     adb shell am start -n jp.local.aichat.device/.MainActivity \
      *       --es server "ws://192.168.1.10:9801/ws"
      */
@@ -140,14 +139,22 @@ class MainActivity : Activity() {
         }
     }
 
-    /** 画面を触った。話している最中なら「やめる」、そうでなければ起こす。 */
+    /**
+     * 画面を触った。**話している最中に「やめる」だけ。**
+     *
+     * 待受中に触っても起こさない。丸い 2.5 インチだと、上から下への
+     * スワイプ（通知を出す動き）が View の click として拾われ、
+     * **喋っていないのに起動していた**。指を少し動かしても、
+     * タッチスロープの内側なら click になる。
+     *
+     * 起こすのはウェイクワードに任せる。止めるほうは、長い読み上げを
+     * 黙らせる手段が他に無いので残す。
+     */
     private fun onTouch() {
         val busy = view.state != State.IDLE && view.state != State.ERROR
         if (busy) {
             player.cancel()
             socket?.cancel()
-        } else {
-            socket?.wake()
         }
     }
 
@@ -162,7 +169,13 @@ class MainActivity : Activity() {
         mouthStep = if (speaking) (mouthStep + 1) % Face.PATTERN.size else 0
         view.mouth = if (speaking) Face.PATTERN[mouthStep] else Face.CLOSED
         view.level = mic?.level ?: 0f
-        view.clock = CLOCK.format(Date())
+        val now = Calendar.getInstance()
+        // **秒針は 1 秒ごとに刻む。** ミリ秒を混ぜると滑って動くが、
+        // 時計としては 1 目盛りずつ跳ぶほうが読みやすい。
+        val second = now.get(Calendar.SECOND).toFloat()
+        view.hour = now.get(Calendar.HOUR).toFloat()
+        view.minute = now.get(Calendar.MINUTE) + second / 60f
+        view.second = second
         view.invalidate()
 
         ui.postDelayed({ tick() }, Face.INTERVAL_MS)
@@ -224,6 +237,5 @@ class MainActivity : Activity() {
          * 引っ越したら `--es server` で上書きする（SharedPreferences に残る）。
          */
         const val DEFAULT_SERVER = "ws://192.168.1.2:9801/ws"
-        val CLOCK = SimpleDateFormat("HH:mm", Locale.JAPAN)
     }
 }

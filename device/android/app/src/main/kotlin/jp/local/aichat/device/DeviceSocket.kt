@@ -118,7 +118,13 @@ class DeviceSocket(
         socket?.send(pcm.toByteString(0, length))
     }
 
-    /** 画面を触った。ウェイクワード無しで起こす。 */
+    /**
+     * ウェイクワード無しで起こす。
+     *
+     * **この端末からは呼んでいない。** 丸い画面でスワイプが click として
+     * 拾われ、誤って起動していたため（`MainActivity.onTouch`）。
+     * サーバーと `device/web` は今も受け付けるので、口は残す。
+     */
     fun wake() {
         socket?.send("""{"type":"wake"}""")
     }
