@@ -154,6 +154,13 @@ export class Session {
    */
   private spoken = false;
   /**
+   * 起こした直後か。
+   *
+   * `startChat` はウェイクワードを含む手前まで遡るので、**呼びかけ
+   * そのものをもう一度聞き取る**。それで仕切り直すと輪になる。
+   */
+  private justWoke = false;
+  /**
    * 待ち直したか。**ログのためだけに持つ。**
    *
    * 待つかどうかの判定には使わない（回数では止めない）。
@@ -318,6 +325,8 @@ export class Session {
     // 継いだ会話だからと立てたままにすると、呼んで黙っていた人に
     // 返事もせず窓も開かないまま待機に戻ってしまう。
     this.acknowledged = false;
+    // 起こした直後の 1 回は、同じ発話を聞き直すことになる。
+    this.justWoke = true;
     // **気づいたことを先に返す。** 聞き取りが始まるまで無反応だと、
     // 呼んだ人はもう一度呼んでしまう。
     this.io.send({ type: "wake" });
@@ -578,10 +587,21 @@ export class Session {
 
     // **窓の中でウェイクワードを言われたら仕切り直す。**
     // ここで拾わないと「ずんだもん」だけが質問として送られて空になる。
+    //
+    // **ただし、いま起こしたばかりの発話では仕切り直さない。**
+    // `startChat` はウェイクワードを含む手前まで遡って聞き直すので、
+    // 呼びかけそのものがここへ来る。素通しにすると
+    // 起動 → 聞き直し → また起動 の輪になり、**効果音が 3 回鳴った**。
     if (raw && matchesWake(raw, saved.wakeWords) && !question) {
+      if (this.justWoke) {
+        this.justWoke = false;
+        void this.acknowledge();
+        return;
+      }
       this.startChat();
       return;
     }
+    this.justWoke = false;
 
     if (!question) {
       // ウェイクワードだけが聞こえて、質問が無かった場合もここに来る。
