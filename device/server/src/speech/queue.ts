@@ -9,9 +9,11 @@
  * **無音が 3.4 秒**入り、「たまに途切れる」と受け取られた。
  */
 
+import type { Emotion } from "./emotion.ts";
+
 export class SpeechQueue {
   /** 合成中または合成済みのもの。順番はここで保つ。 */
-  private queue: Promise<Buffer | null>[] = [];
+  private queue: Promise<{ audio: Buffer; emotion?: Emotion } | null>[] = [];
   private running = false;
   private generation = 0;
 
@@ -19,21 +21,29 @@ export class SpeechQueue {
   // Node の型ストリッピングは値を伴う構文を扱えないため。
   private readonly synthesize: (text: string) => Promise<Buffer>;
   private readonly send: (audio: Buffer) => Promise<void>;
+  private readonly onEmotion: ((emotion: Emotion) => void) | undefined;
 
   constructor(
     synthesize: (text: string) => Promise<Buffer>,
     send: (audio: Buffer) => Promise<void>,
+    onEmotion?: (emotion: Emotion) => void,
   ) {
     this.synthesize = synthesize;
     this.send = send;
+    this.onEmotion = onEmotion;
   }
 
-  /** 1文を積む。**この時点で合成が始まる。** */
-  enqueue(text: string): void {
+  /**
+   * 1文を積む。**この時点で合成が始まる。**
+   *
+   * 感情は音声と一緒に運ぶ。**先に全部送ると顔だけ先走る**（合成は
+   * 並行に走るので、積んだ順と鳴る順は同じでも、積んだ時刻とは違う）。
+   */
+  enqueue(text: string, emotion?: Emotion): void {
     const generation = this.generation;
     this.queue.push(
       this.synthesize(text)
-        .then((audio) => (generation === this.generation ? audio : null))
+        .then((audio) => (generation === this.generation ? { audio, emotion } : null))
         .catch((error: unknown) => {
           // 黙って捨てない。握り潰すと「音が出ない」原因を追えなくなる。
           console.error("[tts] 合成に失敗しました:", error);
@@ -68,11 +78,13 @@ export class SpeechQueue {
         const next = this.queue.shift();
         if (next === undefined) break;
 
-        const audio = await next;
-        if (audio === null) continue; // 合成に失敗した文は飛ばす
+        const item = await next;
+        if (item === null) continue; // 合成に失敗した文は飛ばす
 
         try {
-          await this.send(audio);
+          // **音より先に顔を変える。** 声が出るときには表情が揃っている。
+          if (item.emotion) this.onEmotion?.(item.emotion);
+          await this.send(item.audio);
         } catch (error) {
           console.error("[tts] 送出に失敗しました:", error);
         }

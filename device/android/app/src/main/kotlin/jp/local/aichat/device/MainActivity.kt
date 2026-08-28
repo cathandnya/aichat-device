@@ -162,8 +162,10 @@ class MainActivity : Activity() {
     }
 
     private fun onEvent(event: Event) {
-        // mock 中はサーバーの状態で上書きしない。
-        if (mockState != null && event is Event.StateChanged) return
+        // mock 中はサーバーの状態・表情で上書きしない。
+        if (mockState != null && (event is Event.StateChanged || event is Event.EmotionChanged)) {
+            return
+        }
         when (event) {
             is Event.StateChanged -> {
                 view.state = event.state
@@ -172,6 +174,10 @@ class MainActivity : Activity() {
             // **気づいたことをすぐ返す。** 聞き取りが始まるまで無反応だと、
             // 呼んだ人はもう一度呼んでしまう。
             Event.Wake -> sounds?.play(wakeSound, 1f, 1f, 1, 0, 1f)
+            is Event.EmotionChanged -> {
+                view.emotion = event.emotion
+                view.invalidate()
+            }
             is Event.Audio -> player.enqueue(event.wav)
             is Event.Failed -> Log.w(TAG, "サーバー: ${event.message}")
             Event.Closed -> {

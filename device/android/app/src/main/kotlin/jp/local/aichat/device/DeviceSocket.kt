@@ -107,6 +107,7 @@ class DeviceSocket(
             // 次に届くバイナリが読み上げの音声であることの予告。
             "audio" -> expectAudio = true
             "wake" -> onEvent(Event.Wake)
+            "emotion" -> onEvent(Event.EmotionChanged(Emotion.of(json.optString("emotion"))))
             "error" -> onEvent(Event.Failed(json.optString("message")))
             // question / answer / sources / chat / config は文字なので使わない。
             // **取り決めは変えない。** ブラウザの画面が使い続けている。

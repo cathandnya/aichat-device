@@ -52,6 +52,11 @@ import {
 } from "../audio/format.ts";
 import { RingBuffer } from "../audio/ring.ts";
 import { runtimeFrom, type Config } from "../config.ts";
+import {
+  EmotionTagStripper,
+  guessEmotion,
+  type Emotion,
+} from "../speech/emotion.ts";
 import { SentenceSplitter } from "../speech/sentences.ts";
 import { SpeechQueue } from "../speech/queue.ts";
 import { synthesize } from "../speech/tts.ts";
@@ -477,9 +482,20 @@ export class Session {
     this.speech = new SpeechQueue(
       (text) => synthesize(text, this.config, controller.signal),
       (audio) => this.sendAudio(audio),
+      (emotion) => this.io.send({ type: "emotion", emotion }),
     );
 
     const splitter = new SentenceSplitter();
+    const stripper = new EmotionTagStripper();
+    /**
+     * 直前に採れたタグ。
+     *
+     * **バッファが空のときに来たタグはいまの文に、そうでなければ次の文に
+     * 効かせる**（docs/08）。`SentenceSplitter` が短い断片を次とまとめる
+     * ので、「はい。[happy] やったのだ！」が 1 文になり、タグが文の途中に
+     * 来ることがあるため。
+     */
+    let tagged: Emotion | null = null;
     const collectedSources: Source[] = [];
     let answer = "";
     let failed = false;
@@ -518,11 +534,22 @@ export class Session {
             return;
           }
           if (event.text) {
+            // **タグを先に剥がす。** ここを通さないと画面にも読み上げにも
+            // `[happy]` が出る。
+            const text = stripper.push(event.text);
+            tagged = stripper.take() ?? tagged;
+            for (const word of stripper.takeUnknown()) {
+              // 表に足す材料になる。捨てたことは黙らない。
+              console.log(`[emotion] 知らない語を捨てました: ${word}`);
+            }
+            if (!text) continue;
+
             if (!answer) this.setState("speaking", "回答中");
-            answer += event.text;
+            answer += text;
             this.io.send({ type: "answer", text: answer });
-            for (const sentence of splitter.push(event.text)) {
-              this.speech?.enqueue(sentence);
+            for (const sentence of splitter.push(text)) {
+              this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
+              tagged = null;
             }
           }
           if (event.sources?.length) {
@@ -547,7 +574,21 @@ export class Session {
 
     if (controller.signal.aborted || failed) return;
 
-    for (const sentence of splitter.flush()) this.speech?.enqueue(sentence);
+    // **保留分を取りこぼさない。** 途中で打ち切られた（truncated）ときは
+    // 閉じないタグが残るので、本文として流す。
+    const rest = stripper.flush();
+    if (rest) {
+      answer += rest;
+      this.io.send({ type: "answer", text: answer });
+      for (const sentence of splitter.push(rest)) {
+        this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
+        tagged = null;
+      }
+    }
+    for (const sentence of splitter.flush()) {
+      this.speech?.enqueue(sentence, tagged ?? guessEmotion(sentence));
+      tagged = null;
+    }
 
     if (answer) {
       appendTurn(chatId, {

@@ -7,6 +7,8 @@
  * デバイス側に判断をさせないので、送るのは「いまどう見せるか」だけ。
  */
 
+import type { Emotion } from "../speech/emotion.ts";
+
 /** 画面の状態。ブラウザ版の 5 状態をそのまま移した。 */
 export type DeviceState =
   | "idle" // 待機。時計を出す
@@ -35,6 +37,13 @@ export type ServerMessage =
   /** 回答の**累積全文**。差分ではないので、そのまま置き換えればよい。 */
   | { type: "answer"; text: string }
   | { type: "sources"; sources: Source[] }
+  /**
+   * 表情。**読み上げの直前に、その文の感情を送る。**
+   *
+   * 音より先に届くので、声が出るときには顔が変わっている。
+   * 届かなくても会話は成り立つ（デバイスは前の表情のまま）。
+   */
+  | { type: "emotion"; emotion: Emotion }
   | { type: "error"; message: string }
   /** 次に届くバイナリが読み上げの音声であることの予告。 */
   | { type: "audio"; bytes: number }

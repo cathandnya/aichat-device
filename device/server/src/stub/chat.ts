@@ -22,6 +22,7 @@ export const SCENARIOS = [
   "error",
   "empty",
   "truncated",
+  "emotion",
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -37,6 +38,20 @@ const LONG =
   "軽いものは飛ばされないように留めておくと安心です。" +
   "\n\n" +
   "朝晩はまだ冷えます。出かけるときは羽織るものを一枚持っていくとちょうどいいでしょう。";
+
+/**
+ * 5 種類のタグを全部含む応答。**目で見て耳で聞いて確かめる**ためのもの
+ * （docs/08「表情と声色の切り替わり」は課金ゼロで確かめられる）。
+ *
+ * `[1]` を混ぜてあるのは、**本文の角括弧が消えないこと**を同時に見るため。
+ */
+const EMOTION =
+  "[neutral] 今日の予定を確認するのだ。" +
+  "[happy] 全部かたづいたのだ！" +
+  "[surprised] えっ、もうこんな時間なのだ。" +
+  "[sad] ひとつだけ間に合わなかったのだ。" +
+  "[angry] 次はぜったい忘れないのだ。" +
+  "参考は [1] の資料なのだ。";
 
 const SOURCES = [
   { uri: "https://vertexaisearch.example/redirect/abc", title: "tenki.jp" },
@@ -68,7 +83,8 @@ export function handleStubChat(c: Context): Response {
     await sleep(scenario === "slow" ? 5_000 : 400);
     if (cancelled) return;
 
-    const text = scenario === "long" ? LONG : NORMAL;
+    const text =
+      scenario === "long" ? LONG : scenario === "emotion" ? EMOTION : NORMAL;
 
     for (const chunk of chunks(text)) {
       if (cancelled) return;

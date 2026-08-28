@@ -36,6 +36,8 @@ enum class State {
 /** サーバーから届くもの。 */
 sealed interface Event {
     data class StateChanged(val state: State, val status: String) : Event
+    /** 表情。**読み上げの直前に届く**ので、声より先に顔が変わる。 */
+    data class EmotionChanged(val emotion: Emotion) : Event
     /** ウェイクワードで起こされた。効果音を鳴らす合図。 */
     data object Wake : Event
     /** 読み上げの音声（WAV）。 */
