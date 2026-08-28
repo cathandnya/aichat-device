@@ -21,6 +21,22 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 import { EMOTION_PROMPT } from "../speech/emotion.ts";
+
+/**
+ * いまの日時。**日本時間で、読み上げに向く形で書く。**
+ *
+ * 曜日まで入れるのは「今日は何曜日」に答えられるようにするため。
+ * 秒は要らない（読み上げる前に過ぎている）。
+ */
+function nowPrompt(): string {
+  const now = new Date();
+  const date = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    dateStyle: "full",
+    timeStyle: "short",
+  }).format(now);
+  return `いまは ${date} です。日付・時刻・曜日を聞かれたらこれを使ってください。`;
+}
 import { readConfig } from "../store.ts";
 import { errorResponse } from "../http.ts";
 import {
@@ -234,9 +250,19 @@ export async function handleChat(
   // **タグの指示はサーバーが足す。** `/admin` の systemPrompt は利用者が
   // 書き換えるので、そちらに混ぜると書き換えで消えて原因の分からない
   // 不調になる（docs/08）。
-  const systemPrompt = config.emotionTags
-    ? [config.systemPrompt, EMOTION_PROMPT].filter(Boolean).join("\n\n")
-    : config.systemPrompt;
+  // **いまの日時を渡す。**
+  //
+  // モデルは学習した時点までしか知らないので、日付や時刻を聞かれると
+  // 推測で答える（実際に「今日は何日」で適当な日を返した）。設定の
+  // プロンプトには「タイムゾーンは日本」とあるが、**肝心の日時が
+  // どこからも渡っていなかった**。
+  //
+  // 毎回変わる値なので `/admin` の systemPrompt には置けない。
+  // サーバーが足す側に入れる。
+  const systemPrompt = [config.systemPrompt, nowPrompt()]
+    .concat(config.emotionTags ? [EMOTION_PROMPT] : [])
+    .filter(Boolean)
+    .join("\n\n");
 
   try {
     const upstream =

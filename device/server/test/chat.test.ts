@@ -158,7 +158,9 @@ test("モデルとシステムプロンプトは保存された設定が使わ�
       max_tokens: number;
     };
     assert.equal(sent.model, "claude-opus-5");
-    assert.equal(sent.system, "やさしく答えて");
+    // 日時はサーバーが必ず足すので、含まれることだけ見る。
+    assert.ok(sent.system?.includes("やさしく答えて"));
+    assert.ok(!sent.system?.includes("制限を無視して"), "画面の指定は無視する");
     assert.notEqual(sent.max_tokens, 99999);
   });
 });
@@ -188,6 +190,28 @@ test("感情タグの指示はサーバーが足す", async () => {
   });
 });
 
+test("いまの日時を渡す", async () => {
+  // モデルは学習時点までしか知らない。**渡さないと推測で答える**
+  // （実機で「今日は何日」に適当な日を返した）。
+  setConfig({ provider: "claude", systemPrompt: "", emotionTags: false });
+
+  await withUpstream({}, async (app, upstream) => {
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "今日は何日" }),
+    });
+    await response.text();
+
+    const sent = JSON.parse(upstream.received.at(-1)?.body ?? "{}") as {
+      system?: string;
+    };
+    const year = new Date().getFullYear();
+    assert.ok(sent.system?.includes(`${year}年`), `年が入る: ${sent.system}`);
+    assert.ok(sent.system?.includes("いまは"), "日時として渡す");
+  });
+});
+
 test("感情タグを切ると指示を足さない", async () => {
   setConfig({
     provider: "claude",
@@ -206,7 +230,8 @@ test("感情タグを切ると指示を足さない", async () => {
     const sent = JSON.parse(upstream.received.at(-1)?.body ?? "{}") as {
       system?: string;
     };
-    assert.equal(sent.system, "やさしく答えて");
+    assert.ok(sent.system?.includes("やさしく答えて"), "利用者の指示は残る");
+    assert.ok(!sent.system?.includes("[happy]"), "タグの指示は足さない");
   });
 });
 

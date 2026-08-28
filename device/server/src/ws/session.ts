@@ -766,6 +766,11 @@ export class Session {
             }
           }
           if (event.sources?.length) {
+            // **検索が走ったかは、これでしか分からない。** 端末は音声だけで
+            // 引用元を出さないので、ログに残さないと確かめようがない。
+            for (const source of event.sources) {
+              console.log(`[search] ${source.title ?? source.uri}`);
+            }
             collectedSources.push(...event.sources);
             this.io.send({ type: "sources", sources: event.sources });
           }
