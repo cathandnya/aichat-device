@@ -11,6 +11,7 @@
  */
 
 #include <jni.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,11 +26,77 @@
  */
 #define PASS_THROUGH 0
 
+/*
+ * ★ **スペクトル抑圧。**
+ *
+ * 線形フィルタ（speexdsp の引き算）は、この端末では 3〜6dB しか
+ * 消せなかった。スピーカーからマイクへの経路が**非線形に歪む**ため
+ * （実測で波形の相関 0.25）、引き算では原理的に消えない。
+ *
+ * **が、鳴らす音のデータはこちらが持っている。** 帯域ごとに見ると、
+ * 参照の大きさからマイクに乗る量が読める（実測で相関 0.82〜0.90）。
+ * 歪んでいても「どの帯域がいまどれだけ鳴っているか」は正確に分かる。
+ *
+ * そこで引き算ではなく、**帯域ごとに「予想されるエコーのぶんだけ
+ * 下げる」**。位相を使わないので歪みに強い。手元の録音で試算して
+ * 14.9dB（線形の 3〜6dB に対して）。
+ */
+#define FFT_N 512
+#define FFT_HALF (FFT_N / 2)
+
 typedef struct {
     SpeexEchoState *echo;
     SpeexPreprocessState *preprocess;
     int frame_size;
+
+    /* 帯域ごとの「参照 → エコー」の大きさの比。走らせながら憶える。 */
+    float gain[FFT_HALF];
+    /* 直前の窓（重ね合わせ用） */
+    float overlap[FFT_N];
+    float window[FFT_N];
+    /* 作業用 */
+    float mic_re[FFT_N], mic_im[FFT_N];
+    float ref_re[FFT_N], ref_im[FFT_N];
+    float pending_mic[FFT_N];
+    float pending_ref[FFT_N];
+    int   filled;
+    int   ready;
 } Aec;
+
+/** 素朴な基数2 FFT。512 点なので速さは足りる。 */
+static void fft(float *re, float *im, int n) {
+    for (int i = 1, j = 0; i < n; i++) {
+        int bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            float t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    for (int len = 2; len <= n; len <<= 1) {
+        float ang = -2.0f * (float) M_PI / (float) len;
+        float wr = cosf(ang), wi = sinf(ang);
+        for (int i = 0; i < n; i += len) {
+            float cr = 1.0f, ci = 0.0f;
+            for (int k = 0; k < len / 2; k++) {
+                int a = i + k, b = i + k + len / 2;
+                float xr = re[b] * cr - im[b] * ci;
+                float xi = re[b] * ci + im[b] * cr;
+                re[b] = re[a] - xr; im[b] = im[a] - xi;
+                re[a] += xr;        im[a] += xi;
+                float nr = cr * wr - ci * wi;
+                ci = cr * wi + ci * wr; cr = nr;
+            }
+        }
+    }
+}
+
+static void ifft(float *re, float *im, int n) {
+    for (int i = 0; i < n; i++) im[i] = -im[i];
+    fft(re, im, n);
+    for (int i = 0; i < n; i++) { re[i] /= (float) n; im[i] = -im[i] / (float) n; }
+}
 
 JNIEXPORT jlong JNICALL
 Java_jp_local_aichat_device_Aec_nativeInit(
@@ -90,7 +157,74 @@ Java_jp_local_aichat_device_Aec_nativeInit(
         speex_preprocess_ctl(aec->preprocess, SPEEX_PREPROCESS_SET_AGC, &agc);
     }
 
+    for (int i = 0; i < FFT_HALF; i++) aec->gain[i] = 0.0f;
+    for (int i = 0; i < FFT_N; i++) {
+        aec->overlap[i] = 0.0f;
+        /* ハン窓。50% 重ねで足すと 1 になる。 */
+        aec->window[i] = 0.5f - 0.5f * cosf(2.0f * (float) M_PI * (float) i / (float) FFT_N);
+    }
+    aec->filled = 0;
+    aec->ready = 0;
+
     return (jlong) (intptr_t) aec;
+}
+
+/**
+ * 1 窓ぶん抑える。**引き算ではなく、帯域ごとに下げる。**
+ *
+ * `mic` と `ref` は FFT_N 点。結果を `out` に返す（同じ長さ）。
+ */
+static void suppress(Aec *aec, const float *mic, const float *ref, float *out) {
+    for (int i = 0; i < FFT_N; i++) {
+        aec->mic_re[i] = mic[i] * aec->window[i];
+        aec->mic_im[i] = 0.0f;
+        aec->ref_re[i] = ref[i] * aec->window[i];
+        aec->ref_im[i] = 0.0f;
+    }
+    fft(aec->mic_re, aec->mic_im, FFT_N);
+    fft(aec->ref_re, aec->ref_im, FFT_N);
+
+    for (int k = 0; k < FFT_HALF; k++) {
+        float mr = aec->mic_re[k], mi = aec->mic_im[k];
+        float rr = aec->ref_re[k], ri = aec->ref_im[k];
+        float mag = sqrtf(mr * mr + mi * mi);
+        float rmag = sqrtf(rr * rr + ri * ri);
+
+        /*
+         * 比を憶える。**鳴っているときだけ。** 静かなときに更新すると
+         * 部屋の雑音を「エコー」と憶えてしまう。
+         * ゆっくり寄せる（急に動かすと人の声を削る）。
+         */
+        if (rmag > 50.0f) {
+            float observed = mag / rmag;
+            aec->gain[k] += (observed - aec->gain[k]) * 0.05f;
+            if (aec->gain[k] > 4.0f) aec->gain[k] = 4.0f;
+        }
+
+        /* 予想されるエコーの大きさ。 */
+        float est = aec->gain[k] * rmag;
+        /*
+         * どれだけ引くか。**この機械では強めに倒す。**
+         *
+         * 実測 1.6 倍・床 5% で 12dB まで来たが、それでも
+         * 「ずんだもん」で誤爆した。下流は STT とウェイクワード判定で
+         * あって人の耳ではないので、多少歪ませてでも消すほうを採る。
+         * 人が割り込むときは**参照が鳴っていない帯域が残る**ので、
+         * そこから拾える。
+         */
+        float keep = mag - 3.0f * est;
+        float floor_ = 0.02f * mag;
+        if (keep < floor_) keep = floor_;
+        float g = (mag > 1e-6f) ? keep / mag : 1.0f;
+
+        aec->mic_re[k] *= g; aec->mic_im[k] *= g;
+        if (k > 0) {
+            aec->mic_re[FFT_N - k] = aec->mic_re[k];
+            aec->mic_im[FFT_N - k] = -aec->mic_im[k];
+        }
+    }
+    ifft(aec->mic_re, aec->mic_im, FFT_N);
+    for (int i = 0; i < FFT_N; i++) out[i] = aec->mic_re[i] * aec->window[i];
 }
 
 /**
@@ -116,8 +250,51 @@ Java_jp_local_aichat_device_Aec_nativeProcess(
 #if PASS_THROUGH
     memcpy(out_p, mic_p, (size_t) aec->frame_size * sizeof(jshort));
 #else
+    /* まず線形で引ける分を引く（3〜6dB ぶん）。 */
     speex_echo_cancellation(aec->echo, mic_p, ref_p, out_p);
     if (aec->preprocess) speex_preprocess_run(aec->preprocess, out_p);
+
+    /*
+     * ★ **そのうえで、帯域ごとに抑える。**
+     *
+     * 線形で消しきれなかった歪みぶんは、ここで落とす。
+     * 20ms(320) ずつ来るので、512 点の窓に溜めて 256 ずつ進める。
+     */
+    for (int i = 0; i < aec->frame_size; i++) {
+        aec->pending_mic[aec->filled] = (float) out_p[i];
+        aec->pending_ref[aec->filled] = (float) ref_p[i];
+        aec->filled++;
+
+        if (aec->filled == FFT_N) {
+            float processed[FFT_N];
+            suppress(aec, aec->pending_mic, aec->pending_ref, processed);
+            /* 前の窓と重ねて足す。 */
+            for (int j = 0; j < FFT_N; j++) aec->overlap[j] += processed[j];
+            aec->ready = 1;
+            /* 半分ぶん進める。 */
+            memmove(aec->pending_mic, aec->pending_mic + FFT_N / 2,
+                    (FFT_N / 2) * sizeof(float));
+            memmove(aec->pending_ref, aec->pending_ref + FFT_N / 2,
+                    (FFT_N / 2) * sizeof(float));
+            aec->filled = FFT_N / 2;
+        }
+    }
+
+    /*
+     * 出来上がった分を返す。**まだ溜まっていない間は線形の結果を
+     * そのまま返す**（無音を返すと語頭が欠ける）。
+     */
+    if (aec->ready) {
+        for (int i = 0; i < aec->frame_size; i++) {
+            float v = aec->overlap[i];
+            if (v > 32767.0f) v = 32767.0f;
+            if (v < -32768.0f) v = -32768.0f;
+            out_p[i] = (jshort) v;
+        }
+        memmove(aec->overlap, aec->overlap + aec->frame_size,
+                (FFT_N - aec->frame_size) * sizeof(float));
+        for (int i = FFT_N - aec->frame_size; i < FFT_N; i++) aec->overlap[i] = 0.0f;
+    }
 #endif
 
 release:
