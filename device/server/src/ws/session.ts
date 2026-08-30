@@ -156,6 +156,12 @@ export class Session {
    */
   private spoken = false;
   /**
+   * 鳴り終わった時刻。**追い質問で遡りすぎないための境。**
+   *
+   * ここより前には自分の読み上げが入っている。
+   */
+  private spokenAt = 0;
+  /**
    * 起こした直後か。
    *
    * `startChat` はウェイクワードを含む手前まで遡るので、**呼びかけ
@@ -386,8 +392,19 @@ export class Session {
     // 遡る量は短いまま。ウェイクワードを含める必要がなく、長く遡ると
     // 前の発話の尻尾まで拾う（実際に「の天気は駅までの行き方は」と
     // いう質問文になった）。
+    //
+    // ★ **鳴り終わりより前へは遡らない。**
+    //
+    // 端末は鳴り終わってから 350ms（`TAIL_MS`）マイクを伏せるが、
+    // 0.4 秒遡るとその**手前まで届いてしまう**。そこには自分の読み上げの
+    // 尻尾が入っており、それを質問として聞き取って答え、その答えの尻尾を
+    // また拾う——という輪になる（実機で「うん。」を質問として answer し、
+    // **勝手に喋り続けた**）。
+    const sinceSpoken = (Date.now() - this.spokenAt) / 1000;
+    const preroll = Math.max(0, Math.min(FOLLOW_UP_PREROLL_SEC, sinceSpoken));
+
     const seconds = readConfig().followUpSec;
-    this.beginListening(FOLLOW_UP_PREROLL_SEC, Math.max(seconds, 1) * 1000);
+    this.beginListening(preroll, Math.max(seconds, 1) * 1000);
   }
 
   /**
@@ -464,6 +481,7 @@ export class Session {
     // ことがあり、いまの状態を壊してはいけない。
     if (this.state !== "speaking") return;
     this.spoken = true;
+    this.spokenAt = Date.now();
     this.clearFollowTimer();
     this.openFollowUp();
   }
@@ -485,6 +503,7 @@ export class Session {
       if (this.state !== "speaking") return;
       console.log("[speech] 端末からの鳴り終わりが来ないので、計算値で開きます");
       this.spoken = true;
+      this.spokenAt = Date.now();
       this.openFollowUp();
     }, wait);
   }

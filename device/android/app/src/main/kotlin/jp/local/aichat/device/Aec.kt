@@ -49,9 +49,20 @@ class Aec {
     /** 収束したとみなすまでに通したフレーム数。 */
     private var processed = 0
 
+    /**
+     * 参照に掛ける倍率。**再生と録音の大きさの差を埋める。**
+     *
+     * 実測で 70 倍（37dB）開いていた。固定値ではなく、鳴っている間の
+     * 実測（`micPeak` / `refPeak`）で追い込む。
+     */
+    @Volatile private var refGain = 1f / 70f
+
     private var micEnergy = 0.0
     private var outEnergy = 0.0
     private var measured = 0
+    /** 生の振幅。**rms だけだと「小さい」と「無音」を見分けられない。** */
+    private var micPeak = 0
+    private var refPeak = 0
 
     fun open() {
         if (handle != 0L) return
@@ -84,7 +95,18 @@ class Aec {
                 val at = (base + i) * 2
                 mic[i] = ((micFrame[at + 1].toInt() shl 8) or
                     (micFrame[at].toInt() and 0xff)).toShort()
-                ref[i] = reference[base + i]
+                // ★ **参照を実際のエコーの大きさに合わせる。**
+                //
+                // この端末は再生が大きく録音が小さい。実測で
+                // micPeak=208 に対し refPeak=14655——**70 倍（37dB）**の
+                // 開きがあった。speexdsp はエコー経路を線形フィルタとして
+                // 推定するが、これほど桁が違うと係数が極端になり収束しない
+                // （実測 ERLE 1.4〜3.7dB）。
+                //
+                // あらかじめ縮めて渡し、フィルタには**ほぼ等倍の経路**を
+                // 見せる。倍率は実測から追い込む（`refGain`）。
+                ref[i] = (reference[base + i] * refGain).toInt()
+                    .coerceIn(-32768, 32767).toShort()
             }
 
             nativeProcess(handle, mic, ref, out)
@@ -95,8 +117,11 @@ class Aec {
                 micFrame[at + 1] = ((out[i].toInt() shr 8) and 0xff).toByte()
             }
 
-            accumulate()
+            // **数えてから測る。** 逆にすると 50 フレーム目の判定で
+            // `processed` がまだ 49 で、収束条件を 1 つ差で落とす
+            // （実機で erle=18.7dB でも ready=false になった）。
             processed += 1
+            accumulate()
         }
     }
 
@@ -107,6 +132,10 @@ class Aec {
         for (i in 0 until FRAME) {
             m += mic[i].toDouble() * mic[i].toDouble()
             o += out[i].toDouble() * out[i].toDouble()
+            val a = kotlin.math.abs(mic[i].toInt())
+            if (a > micPeak) micPeak = a
+            val r = kotlin.math.abs(ref[i].toInt())
+            if (r > refPeak) refPeak = r
         }
         micEnergy += m
         outEnergy += o
@@ -132,16 +161,29 @@ class Aec {
 
         Log.i(
             TAG,
-            "erle=%.1fdB mic=%.3f out=%.3f ready=%s".format(
+            "erle=%.1fdB mic=%.5f out=%.5f micPeak=%d refPeak=%d gain=%.4f ready=%s".format(
                 erle,
-                sqrt(micEnergy / (measured * FRAME)) / 32768.0,
-                sqrt(outEnergy / (measured * FRAME)) / 32768.0,
+                sqrt(micEnergy / (measured.toDouble() * FRAME)) / 32768.0,
+                sqrt(outEnergy / (measured.toDouble() * FRAME)) / 32768.0,
+                micPeak,
+                refPeak,
+                refGain,
                 ready,
             ),
         )
+        // **次の窓の倍率を、いま測った比で決める。**
+        //
+        // 部屋・音量・距離で変わるので固定値にしない。急に動くと
+        // フィルタが追えないので、半分ずつ寄せる。
+        if (micPeak > 20 && refPeak > 200) {
+            val target = micPeak.toFloat() / refPeak.toFloat()
+            refGain += (target - refGain) * 0.5f
+        }
         micEnergy = 0.0
         outEnergy = 0.0
         measured = 0
+        micPeak = 0
+        refPeak = 0
     }
 
     /**
@@ -155,6 +197,12 @@ class Aec {
      * 2 文目以降は溜めた係数がそのまま効く。
      */
     fun endTrack() {
+        // **既に降りているなら何もしない。**
+        //
+        // これは参照が引けないフレームごとに呼ばれる（＝鳴っていない間は
+        // ずっと）。毎回リセットすると、溜めかけの測定が消え続けて
+        // ERLE がいつまでも出ない。降りる仕事は一度で足りる。
+        if (!ready && measured == 0) return
         ready = false
         micEnergy = 0.0
         outEnergy = 0.0

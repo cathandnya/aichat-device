@@ -174,18 +174,18 @@ class AudioPlayer(
             // `write()` はバッファが空くまでブロックする（数百 ms あり得る）。
             // 後に積むと、その間マイク側が参照を引けず、消さないまま
             // 素通しになる。**鳴り始めが一番消したい所**なので順序が要る。
+            //
+            // **積んでから track を渡す。** マイク側は `progress()` ではなく
+            // この track から直に再生位置を読む（下記）。
             reference?.beginTrack()
             reference?.push(pcm)
+            reference?.attach(track)
             track.play()
             var offset = 0
             while (offset < pcm.samples.size && mine == generation) {
                 val wrote = track.write(pcm.samples, offset, pcm.samples.size - offset)
                 if (wrote <= 0) break
                 offset += wrote
-                // **書いている途中も知らせる。** `write()` は空くまで
-                // ブロックするので、長い文ではここに数百 ms 留まる。
-                // 知らせないと、その間マイク側の基準が止まる。
-                reference?.progress(track.playbackHeadPosition)
             }
             // **鳴り終わるまで待つ。** 書き終えた時点ではまだ鳴っている。
             // ここで戻ると口パクが先に止まる。
@@ -210,7 +210,6 @@ class AudioPlayer(
                 var stalled = 0
                 while (mine == generation && track.playbackHeadPosition < total) {
                     val before = track.playbackHeadPosition
-                    reference?.progress(before)
                     Thread.sleep(20)
                     // 進まなくなったら諦める。**永久に待たない。**
                     if (track.playbackHeadPosition == before) {
@@ -237,6 +236,7 @@ class AudioPlayer(
                 0
             }
             reference?.endTrack(played)
+            reference?.detach()
 
             // **鳴り終わってからも少し伏せておく。**
             //

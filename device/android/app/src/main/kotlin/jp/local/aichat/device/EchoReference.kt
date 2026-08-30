@@ -41,11 +41,18 @@ class EchoReference {
     @Volatile private var trackStart = 0L
 
     /**
-     * いま**鳴った**ところ（通し）。`playbackHeadPosition` から作る。
+     * いま鳴らしている track。**再生位置はここから直に読む。**
      *
-     * これが引くときの基準。積んだ位置ではない。
+     * 再生側から `progress()` で知らせてもらう作りにしていたが、
+     * **短い文は 1 回の `write()` で渡し終える**ので、書き込みループが
+     * すぐ抜けて知らせが来なかった（実機で `played=0 written=31232` の
+     * まま、AEC が一度も動かなかった）。
+     *
+     * マイク側は 80ms ごとに必ず動くので、**引くときにその場で読む**のが
+     * 確実。`playbackHeadPosition` は再生スレッドと別スレッドから読んで
+     * 安全な値。
      */
-    @Volatile private var played = 0L
+    @Volatile private var track: android.media.AudioTrack? = null
 
     /** 鳴っているか。false の間は参照を返さない。 */
     @Volatile var active = false
@@ -54,18 +61,31 @@ class EchoReference {
     /** 新しい文を鳴らし始める。**係数は消さない**（部屋は変わらない）。 */
     @Synchronized fun beginTrack() {
         trackStart = written
-        played = written
         active = true
     }
 
+    /** 鳴らす track を渡す。**積んだ後、`play()` の前に呼ぶ。** */
+    @Synchronized fun attach(track: android.media.AudioTrack) {
+        this.track = track
+    }
+
+    /** 鳴らし終わった track を手放す。 */
+    @Synchronized fun detach() {
+        track = null
+    }
+
     /**
-     * どこまで鳴ったかを知らせる。**再生側が繰り返し呼ぶ。**
+     * いま鳴ったところ（通し）。**引くときにその場で読む。**
      *
-     * `frames` は `AudioTrack.playbackHeadPosition`（その track の中での
-     * 位置）。track を跨いで連続するよう開始位置を足す。
+     * track を跨いでも連続するよう、開始位置を足す。
      */
-    @Synchronized fun progress(frames: Int) {
-        played = trackStart + frames
+    private fun playedNow(): Long {
+        val current = track ?: return trackStart
+        return trackStart + try {
+            current.playbackHeadPosition.toLong() and 0xffff_ffffL
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     /**
@@ -76,7 +96,7 @@ class EchoReference {
      * **止める操作は実装済みなので必ず起きる。**
      */
     @Synchronized fun endTrack(playedFrames: Int) {
-        played = trackStart + playedFrames
+        val played = trackStart + playedFrames
         // 鳴らなかったぶんは無かったことにする。
         if (played < written) written = played
         active = false
@@ -125,6 +145,7 @@ class EchoReference {
         // ★ **基準は「鳴った位置」。** 積んだ位置（`written`）ではない。
         // `write()` は文をまるごと渡すので、積んだ位置は鳴り始めた直後に
         // もう文末まで飛んでいる。そちらを使うと未来の音を消そうとする。
+        val played = playedNow()
         val from = played - delaySamples - count
         if (from < 0) {
             note("from<0 played=$played written=$written")
