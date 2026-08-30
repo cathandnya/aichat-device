@@ -36,6 +36,13 @@ class AudioPlayer(
      * 拾い、遅いと話しかけても反応しない時間ができる。
      */
     private val onDrained: () -> Unit = {},
+    /**
+     * 鳴らした音を控えておく先。**エコー消去の参照信号になる。**
+     *
+     * ここに積まないと、マイク側は「自分が何を鳴らしたか」を知れない。
+     * 消去を使わないときは null でよい。
+     */
+    private val reference: EchoReference? = null,
 ) {
 
     private data class Item(val wav: ByteArray, val emotion: Emotion?)
@@ -162,6 +169,13 @@ class AudioPlayer(
 
         try {
             playing = true
+            // **参照は `write()` より先に積む。**
+            //
+            // `write()` はバッファが空くまでブロックする（数百 ms あり得る）。
+            // 後に積むと、その間マイク側が参照を引けず、消さないまま
+            // 素通しになる。**鳴り始めが一番消したい所**なので順序が要る。
+            reference?.beginTrack()
+            reference?.push(pcm)
             track.play()
             var offset = 0
             while (offset < pcm.samples.size && mine == generation) {
@@ -206,13 +220,28 @@ class AudioPlayer(
         } catch (_: Exception) {
             // 鳴らなくても止まらない。次の文へ進む。
         } finally {
+            // **実際に鳴った長さを控えてから解放する。**
+            //
+            // `release()` の後では読めない。途中でやめたとき（`cancel`）は
+            // 積んだぶんより短くなるので、その差を参照から捨てる必要がある。
+            // 捨てないと、鳴っていない音を「鳴った」ことにして引くので
+            // フィルタが壊れる。**やめる操作は実装済みなので必ず起きる。**
+            val played = try {
+                track.playbackHeadPosition
+            } catch (_: Exception) {
+                0
+            }
+            reference?.endTrack(played)
+
             // **鳴り終わってからも少し伏せておく。**
             //
             // `playbackHeadPosition` は「デバイスに渡した位置」で、
             // スピーカーから実際に音が出るまでにはハードのバッファぶん
             // 遅れる。ここで即 false にすると、**まだ鳴っている音を
             // マイクが拾い**、追い質問として送られて話が遮られる。
-            // この端末はエコーキャンセルを持たないので、時間で避ける。
+            //
+            // エコー消去が効くようになれば要らなくなるが、**効かなかった
+            // ときの退路**でもあるので残す。
             try {
                 Thread.sleep(TAIL_MS)
             } catch (_: InterruptedException) {

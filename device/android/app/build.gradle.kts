@@ -13,6 +13,25 @@ android {
         targetSdk = 30
         versionCode = 1
         versionName = "0.1"
+
+        // **この端末は MT8163 = 32bit ARM。** `abilist` も armeabi-v7a
+        // だけだったので、他を積んでも APK が膨れるだけ。
+        ndk {
+            abiFilters += "armeabi-v7a"
+        }
+    }
+
+    // **C を持ち込む。**
+    //
+    // 「依存はこれだけ」の方針（下の dependencies）からは外れるが、
+    // 足すのは maven の依存ではなく vendoring した speexdsp のソース。
+    // この端末はハードのエコー消去を持たない（実測 `0 Effect Chains`）
+    // ので、読み上げ中に話しかけられるようにするには自前で消すしかない。
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

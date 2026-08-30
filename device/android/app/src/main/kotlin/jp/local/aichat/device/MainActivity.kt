@@ -34,6 +34,13 @@ class MainActivity : Activity() {
     private lateinit var player: AudioPlayer
     private var socket: DeviceSocket? = null
     private var mic: MicStream? = null
+
+    /**
+     * 鳴らした音の控え。**再生側が積み、マイク側が引く。**
+     *
+     * 両方が同じ 1 つを見る必要があるのでここに置く。
+     */
+    private val echo = EchoReference()
     private var face: Face? = null
 
     private val ui = Handler(Looper.getMainLooper())
@@ -75,6 +82,7 @@ class MainActivity : Activity() {
 
         // 表情の切り替えは**鳴らし始める端末側**で行う（AudioPlayer 参照）。
         player = AudioPlayer(
+            reference = echo,
             onStart = { emotion ->
                 ui.post {
                     if (mockState == null) {
@@ -122,19 +130,25 @@ class MainActivity : Activity() {
         device.connect()
 
         try {
-            mic = MicStream { frame, length ->
-                // **鳴らしている間は送らない。**
-                //
-                // この端末はエコーキャンセルを持たない（`aecEnabled` は
-                // false）ので、送るとスピーカーの音がそのまま戻る。
-                // サーバー側にも「読み上げ中は判定しない」はあるが、
-                // **輪（RingBuffer）には入ってしまう**ので、追い質問で
-                // 手前を遡ったときに読み上げの尻尾が質問に混ざる。
-                // 出どころで止めれば、下流のどの経路にも効く。
-                if (!player.playing) device.sendFrame(frame, length)
-            }
-                .also { it.open() }
-            Log.i(TAG, "エコーキャンセル: ${mic?.aecEnabled}")
+            mic = MicStream(
+                onFrame = { frame, length ->
+                    // ★ **ここが「エコー消去を信用するか」の唯一のスイッチ。**
+                    //
+                    // 元は `if (!player.playing)` だけだった。この端末は
+                    // ハードのエコー消去を持たない（`aecEnabled` は false、
+                    // `0 Effect Chains`）ので、鳴らしている間に送ると
+                    // スピーカーの音がそのまま戻り、**自分の声で自分が起動する**。
+                    //
+                    // ソフトで消せているときだけ、鳴っている間も送る。
+                    // `Aec.ready` は収束前と効きが落ちたときに自分で false に
+                    // 戻るので、**駄目なら放っておいても元の挙動に戻る**。
+                    if (!player.playing || (aecAllowed && mic?.aec?.ready == true)) {
+                        device.sendFrame(frame, length)
+                    }
+                },
+                reference = echo,
+            ).also { it.open() }
+            Log.i(TAG, "エコーキャンセル: ハード=${mic?.aecEnabled} ソフト=${Aec.ENABLED}")
         } catch (e: Exception) {
             Log.e(TAG, "マイクを開けませんでした", e)
         }
@@ -156,6 +170,26 @@ class MainActivity : Activity() {
             prefs.edit().putString("server", it).apply()
         }
         return prefs.getString("server", DEFAULT_SERVER) ?: DEFAULT_SERVER
+    }
+
+    /**
+     * エコー消去を信用してよいか。**実行時の退路。**
+     *
+     * 効かないときに再ビルドせず実機で切り分けられるようにしてある。
+     * `serverUrl()` と同じで、一度渡せば覚える。
+     *
+     *     adb shell am force-stop jp.local.aichat.device
+     *     adb shell am start -n jp.local.aichat.device/.MainActivity \
+     *       --es aec off
+     *
+     * `off` 以外（`on` など）を渡せば戻る。
+     */
+    private val aecAllowed: Boolean by lazy {
+        val prefs = getSharedPreferences("aichat-device", Context.MODE_PRIVATE)
+        intent?.getStringExtra("aec")?.let {
+            prefs.edit().putBoolean("aec", it != "off").apply()
+        }
+        prefs.getBoolean("aec", true)
     }
 
     /**

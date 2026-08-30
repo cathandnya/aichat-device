@@ -45,7 +45,28 @@ import kotlin.math.sqrt
  */
 private const val GAIN = 24f
 
-class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
+class MicStream(
+    private val onFrame: (ByteArray, Int) -> Unit,
+    /**
+     * 自分が鳴らした音。**エコー消去の参照信号。**
+     *
+     * null なら消去をしない（元の挙動）。
+     */
+    private val reference: EchoReference? = null,
+) {
+
+    /** エコー消去。**効かなければ自分で降りる**（`Aec.ready`）。 */
+    val aec: Aec? = if (Aec.ENABLED) Aec() else null
+
+    /**
+     * スピーカーから出てマイクに戻るまでの遅れ（サンプル数）。
+     *
+     * 実測（`dumpsys media.audio_flinger`）で HAL より下だけで 50〜80ms
+     * あった。アプリ側のバッファと空気のぶんが乗るので、**まず 120ms を
+     * 置いて始める**。ここがずれていても、フィルタ長 200ms のうちで
+     * speexdsp が吸う。
+     */
+    @Volatile var delaySamples: Int = Format.SAMPLE_RATE * 120 / 1000
 
     private var record: AudioRecord? = null
     private var thread: Thread? = null
@@ -53,6 +74,10 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
 
     /** 直近のフレームの実効音量（0〜1）。画面の「届いている証」に使う。 */
     @Volatile var level: Float = 0f
+        private set
+
+    /** 直近のフレームで実際に消したか。**ログの切り分け用。** */
+    @Volatile var lastCancelled: Boolean = false
         private set
 
     /** エコーキャンセルが実際に有効になったか。**実機で確かめる値。** */
@@ -86,6 +111,7 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
         }
 
         attachEffects(audio.audioSessionId)
+        aec?.open()
 
         record = audio
         running = true
@@ -113,6 +139,8 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
 
     private fun pump(audio: AudioRecord) {
         val frame = ByteArray(Format.FRAME_BYTES)
+        // 参照を受け取る先。**毎フレーム確保しない。**
+        val ref = ShortArray(Format.FRAME_SAMPLES)
         while (running) {
             var filled = 0
             // **80ms ちょうどで送る。** 半端な長さで送ると、サーバー側の
@@ -124,9 +152,31 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
             }
             if (filled < frame.size) continue
 
+            // **消してから持ち上げる。順序を入れ替えてはいけない。**
+            //
+            // `amplify()` は上限で頭打ちにする（クリップ）。クリップは
+            // 非線形なので、**線形フィルタでは絶対に消せない**。持ち上げた
+            // 後に消そうとすると、割れた成分だけが残る。
+            val cancelled = aec?.let { engine ->
+                val got = reference?.read(Format.FRAME_SAMPLES, delaySamples, ref) ?: false
+                if (got) {
+                    engine.process(frame, filled, ref)
+                    true
+                } else {
+                    // **鳴っていないなら信用も落とす。**
+                    //
+                    // フレームが来なくなるので、ここで落とさないと最後に
+                    // 測った値のまま次の文の頭を素通しする。収束したぶん
+                    // （係数）は残るので、測り直しはすぐ済む。
+                    engine.endTrack()
+                    false
+                }
+            } ?: false
+
             amplify(frame, filled)
             level = rms(frame)
             onFrame(frame, filled)
+            lastCancelled = cancelled
         }
     }
 
@@ -169,6 +219,7 @@ class MicStream(private val onFrame: (ByteArray, Int) -> Unit) {
 
     fun close() {
         running = false
+        aec?.close()
         thread?.join(500)
         thread = null
         record?.let {
