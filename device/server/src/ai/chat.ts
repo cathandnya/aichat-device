@@ -42,6 +42,7 @@ import { errorResponse } from "../http.ts";
 import {
   errorLabel,
   normalizeStream,
+  SSELineParser,
   type DeltaExtractor,
   type ExtractResult,
 } from "../sse.ts";
@@ -233,10 +234,32 @@ function parseBlocks(
  * **signal を上流まで通すのが肝心。** 通し忘れると、画面で「やめる」を
  * 押しても生成が続き、誰も見ない回答に課金され続ける。
  */
+/**
+ * サーバーが持たせる道具（function calling）。
+ *
+ * **画面（`/api/chat`）には渡さない。** タイマーは端末の会話でだけ
+ * 意味があり、誰が呼んだか分からない HTTP からは掛けさせない。
+ */
+export interface ServerTools {
+  /** Gemini の `functionDeclarations` にそのまま入る形。 */
+  declarations: unknown[];
+  /** 呼ばれたら実行して、返す値（JSON になるもの）を返す。 */
+  execute(name: string, args: Record<string, unknown>): Promise<unknown>;
+}
+
+/**
+ * 道具の呼び合いを何周まで許すか。
+ *
+ * **暴走よけ。** 道具を呼んでは結果を見てまた呼ぶ、が止まらなくなると
+ * 課金が延々と続く。タイマーは 1 周で済むので 3 で足りる。
+ */
+const MAX_TOOL_ROUNDS = 3;
+
 export async function handleChat(
   raw: unknown,
   signal: AbortSignal,
   runtime: Runtime,
+  tools?: ServerTools,
 ): Promise<Response> {
   const parsed = parseBody(raw);
   if (typeof parsed === "string") return errorResponse(400, parsed);
@@ -261,10 +284,27 @@ export async function handleChat(
   // サーバーが足す側に入れる。
   const systemPrompt = [config.systemPrompt, nowPrompt()]
     .concat(config.emotionTags ? [EMOTION_PROMPT] : [])
+    .concat(tools ? [TOOL_PROMPT] : [])
     .filter(Boolean)
     .join("\n\n");
 
   try {
+    // **道具つきは Gemini だけ。** Claude は tool_use の解析が別途要る
+    // （`extractClaude` は text_delta しか見ていない）。
+    if (tools && cloud === "gemini") {
+      return await geminiWithTools(
+        signal,
+        runtime,
+        systemPrompt,
+        geminiOutputBudget(config.answerLength, config.thinkingLevel),
+        model,
+        config.thinkingLevel,
+        parsed.messages,
+        tools,
+        config.version,
+      );
+    }
+
     const upstream =
       cloud === "claude"
         ? await callClaude(
@@ -472,6 +512,167 @@ function thinkingConfigFor(model: string, level: ThinkingLevel) {
  *
  * export しているのはテスト（e2e/images.test.mjs）から使うため。
  */
+/**
+ * 道具の使い方の指示。**宣言だけだと使ってくれないことがある。**
+ *
+ * `/admin` の systemPrompt には置かない（利用者が書き換えると消えて、
+ * 原因の分からない不調になる）。サーバーが足す側に入れる。
+ */
+const TOOL_PROMPT = [
+  "タイマーを頼まれたら set_timer を使ってください。",
+  "すでに動いているときは新しくかけられません。",
+  "その場合は残り時間を伝えてください。",
+  "残り時間を聞かれたら get_timer、やめてと言われたら cancel_timer を使ってください。",
+].join("");
+
+/**
+ * 道具を持たせて Gemini と話す。**呼び合いが終わってから流し始める。**
+ *
+ * 途中で `functionCall` が返ると本文はまだ無い。**先に道具を実行して
+ * から本文を流す**ので、利用者に届くのは最後の1周ぶんだけになる。
+ * ストリームを途中まで流してから道具を呼ぶと、言いかけの文が出て
+ * 消えることになるため、この形を採る。
+ */
+async function geminiWithTools(
+  signal: AbortSignal,
+  runtime: Runtime,
+  systemPrompt: string,
+  maxTokens: number,
+  model: string,
+  thinkingLevel: ThinkingLevel,
+  messages: ChatMessage[],
+  tools: ServerTools,
+  configVersion: number,
+): Promise<Response> {
+  const contents: unknown[] = messages.map(toGeminiContent);
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    const upstream = await callGemini(
+      signal,
+      runtime,
+      systemPrompt,
+      maxTokens,
+      model,
+      thinkingLevel,
+      messages,
+      tools,
+      contents,
+    );
+    if (!upstream.ok || !upstream.body) return await upstreamError(upstream, "gemini");
+
+    // 一度ぜんぶ読む。道具を呼ぶかどうかは最後まで見ないと分からない。
+    const { calls, raw } = await readGeminiStream(upstream.body);
+
+    // 道具を呼ばなかった＝これが答え。溜めたぶんをそのまま流す。
+    if (calls.length === 0) {
+      return new Response(normalizeStream(replay(raw), extractGemini), {
+        status: 200,
+        headers: toolHeaders(model, configVersion),
+      });
+    }
+
+    // 呼ばれたぶんを実行して、結果を会話に足してもう一周。
+    contents.push({
+      role: "model",
+      parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args } })),
+    });
+
+    const responses = [];
+    for (const call of calls) {
+      let result: unknown;
+      try {
+        result = await tools.execute(call.name, call.args);
+      } catch (error) {
+        // **道具が転んでも会話は続ける。** AI に伝えて言葉にしてもらう。
+        result = { error: error instanceof Error ? error.message : "失敗しました" };
+      }
+      console.log(`[tool] ${call.name} ${JSON.stringify(call.args)} → ${JSON.stringify(result)}`);
+      responses.push({
+        functionResponse: { name: call.name, response: { result } },
+      });
+    }
+    contents.push({ role: "user", parts: responses });
+  }
+
+  // 打ち切り。ここに来るのは道具を呼び続けたとき。
+  return errorResponse(500, "道具の呼び出しが終わりませんでした。");
+}
+
+interface ToolCall {
+  name: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Gemini の SSE を最後まで読み、**道具の呼び出しと生の行**を返す。
+ *
+ * 生の行を取っておくのは、道具を呼ばなかったときに
+ * `normalizeStream` へそのまま流し直すため（もう一度 API を叩かない）。
+ */
+async function readGeminiStream(
+  body: ReadableStream<Uint8Array>,
+): Promise<{ calls: ToolCall[]; raw: string[] }> {
+  const parser = new SSELineParser();
+  const reader = body.getReader();
+  const calls: ToolCall[] = [];
+  const raw: string[] = [];
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    const payloads = done ? parser.flush() : parser.push(value);
+
+    for (const payload of payloads) {
+      raw.push(payload);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        continue;
+      }
+      const chunk = parsed as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{
+              functionCall?: { name?: string; args?: Record<string, unknown> };
+            }>;
+          };
+        }>;
+      };
+      for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+        const call = part.functionCall;
+        if (call?.name) calls.push({ name: call.name, args: call.args ?? {} });
+      }
+    }
+    if (done) break;
+  }
+
+  return { calls, raw };
+}
+
+/** 溜めた SSE の行を、もう一度ストリームとして流す。 */
+function replay(payloads: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const payload of payloads) {
+        controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
+      }
+      controller.close();
+    },
+  });
+}
+
+function toolHeaders(model: string, version: number): Record<string, string> {
+  return {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-AIChatDevice-Provider": "gemini",
+    "X-AIChatDevice-Model": model,
+    "X-AIChatDevice-Config-Version": String(version),
+  };
+}
+
 export function toGeminiContent(message: ChatMessage) {
   return {
     // Gemini のロール名は user / model（assistant ではない）。
@@ -502,6 +703,15 @@ async function callGemini(
   model: string,
   thinkingLevel: ThinkingLevel,
   messages: ChatMessage[],
+  /**
+   * 道具を持たせるとき。**渡されたときだけ** functionDeclarations を足す。
+   *
+   * 生の contents を渡せるのは、道具の往復で
+   * 「model の functionCall」「function の functionResponse」という
+   * `ChatMessage` で表せない役が要るため。
+   */
+  tools?: ServerTools,
+  contents?: unknown[],
 ): Promise<Response> {
   // API キーは x-goog-api-key ヘッダで渡す。
   // ?key= クエリ方式だと URL にキーが載り、Cloudflare Traces の url.full や
@@ -509,7 +719,7 @@ async function callGemini(
   const url = `${runtime.geminiBaseUrl ?? GEMINI_BASE}/${model}:streamGenerateContent?alt=sse`;
 
   const body = {
-    contents: messages.map(toGeminiContent),
+    contents: contents ?? messages.map(toGeminiContent),
     ...(systemPrompt
       ? { systemInstruction: { parts: [{ text: systemPrompt }] } }
       : {}),
@@ -535,7 +745,14 @@ async function callGemini(
     // 当たらなければ黙って想像で答える）。同じ配列に並べて併用できる。
     //
     // URL を含まない会話では何も起きないので、常時渡して構わない。
-    tools: [{ googleSearch: {} }, { urlContext: {} }],
+    //
+    // **道具を渡すときは検索を外す。** Gemini は functionDeclarations と
+    // googleSearch の同居を受け付けない世代がある（400 になる）。
+    // タイマーを頼まれる会話で検索が要ることはまず無いので、
+    // 道具があるときは道具を採る。
+    tools: tools
+      ? [{ functionDeclarations: tools.declarations }]
+      : [{ googleSearch: {} }, { urlContext: {} }],
   };
 
   return fetch(url, {

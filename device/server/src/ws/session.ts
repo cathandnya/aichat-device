@@ -23,8 +23,16 @@
  *   終了語／上限／エラー → チャット終了
  */
 
-import { handleChat } from "../ai/chat.ts";
+import { handleChat, type ServerTools } from "../ai/chat.ts";
 import { stubChatResponse } from "../stub/chat.ts";
+import {
+  cancelTimer,
+  getTimer,
+  onRing,
+  setTimer,
+  type Timer,
+  type TimerView,
+} from "../timers.ts";
 import { transcribe } from "../ai/stt.ts";
 import {
   WAKE_HOP_SEC,
@@ -162,6 +170,13 @@ export class Session {
    */
   private spokenAt = 0;
   /**
+   * 鳴らせないまま待っているタイマー。
+   *
+   * 会話の最中に時間が来たときに入る。**割り込まずに待つ**——読み上げに
+   * 重ねると両方聞き取れない。待機に戻った時点で鳴らす（`setState`）。
+   */
+  private pendingRing: Timer | null = null;
+  /**
    * 起こした直後か。
    *
    * `startChat` はウェイクワードを含む手前まで遡るので、**呼びかけ
@@ -192,6 +207,10 @@ export class Session {
     this.deviceId = deviceId;
     this.setState("idle", "話しかけてください");
     this.sendConfig();
+    // **タイマーの受け口を持つ。** 繋ぎ直すたびに新しい Session が
+    // 登録し直す（`onRing` は 1 台に 1 つで、付け替えられる）。
+    // 切断中に鳴ったぶんは、ここで登録した瞬間に流れてくる。
+    onRing(this.deviceId, (timer) => void this.ringTimer(timer));
   }
 
   /** デバイスから 80ms の塊が届くたびに呼ぶ。 */
@@ -741,7 +760,12 @@ export class Session {
       response =
         this.config.mode === "stub"
           ? stubChatResponse()
-          : await handleChat({ messages }, controller.signal, runtimeFrom(this.config));
+          : await handleChat(
+              { messages },
+              controller.signal,
+              runtimeFrom(this.config),
+              this.tools(),
+            );
     } catch (error) {
       if (!controller.signal.aborted) {
         this.fail(error instanceof Error ? error.message : "AI の呼び出しに失敗しました。");
@@ -877,6 +901,95 @@ export class Session {
    * 2回目以降は黙って閉じる。物音で silence を繰り返すたびに
    * 「はい？」と言い続ける機械になってしまうため。
    */
+  /**
+   * AI に持たせる道具。**タイマーだけ。**
+   *
+   * 端末の会話からしか呼べない（`/api/chat` には渡していない）。
+   * 誰が呼んだか分からない HTTP からタイマーを掛けさせない。
+   */
+  private tools(): ServerTools {
+    return {
+      declarations: [
+        {
+          name: "set_timer",
+          description:
+            "タイマーをかける。すでに動いているときはかけずに、動いているタイマーを返す。",
+          parameters: {
+            type: "object",
+            properties: {
+              seconds: { type: "number", description: "何秒後に鳴らすか" },
+              label: { type: "string", description: "「パスタ」などの名前。無くてよい" },
+            },
+            required: ["seconds"],
+          },
+        },
+        {
+          name: "get_timer",
+          description: "いま動いているタイマーの残り時間を調べる。",
+          parameters: { type: "object", properties: {} },
+        },
+        {
+          name: "cancel_timer",
+          description: "動いているタイマーをやめる。",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      execute: async (name: string, args: Record<string, unknown>) => {
+        switch (name) {
+          case "set_timer": {
+            const result = setTimer(
+              this.deviceId,
+              Number(args.seconds),
+              typeof args.label === "string" ? args.label : null,
+            );
+            return result.ok
+              ? { ok: true, ...describe(result.timer) }
+              : { ok: false, reason: "すでに動いています", ...describe(result.running) };
+          }
+          case "get_timer": {
+            const timer = getTimer(this.deviceId);
+            return timer ? { running: true, ...describe(timer) } : { running: false };
+          }
+          case "cancel_timer": {
+            const timer = cancelTimer(this.deviceId);
+            return timer ? { cancelled: true, ...describe(timer) } : { cancelled: false };
+          }
+          default:
+            return { error: `知らない道具です: ${name}` };
+        }
+      },
+    };
+  }
+
+  /**
+   * タイマーが鳴った。**AI は呼ばない。**文はこちらで組み立てる。
+   *
+   * 鳴らし方は `acknowledge()` と同じ（合成 → 送る → speech-end → 保険）。
+   */
+  private async ringTimer(timer: Timer): Promise<void> {
+    // **会話の最中なら待つ。** 読み上げに割り込むと両方聞き取れない。
+    if (this.state !== "idle" && this.state !== "error") {
+      this.pendingRing = timer;
+      return;
+    }
+    this.pendingRing = null;
+
+    const what = timer.label ? `${timer.label}の` : "";
+    const text = `${what}${spellDuration(timer.durationSec)}が経ったのだ！`;
+    console.log(`[timer] 鳴らします: 「${text}」`);
+
+    this.setState("speaking", "タイマー");
+    try {
+      const wav = await synthesize(text, this.config, AbortSignal.timeout(20_000));
+      await this.sendAudio(wav);
+    } catch (error) {
+      console.error("[timer] 鳴らせませんでした:", error);
+    }
+    this.io.send({ type: "speech-end" });
+    // 鳴り終わったら窓が開く。**そのまま「あと5分」と足せる。**
+    this.armSpokenFallback();
+  }
+
   private async acknowledge(): Promise<void> {
     const controller = this.abort;
 
@@ -916,6 +1029,14 @@ export class Session {
   // --- 補助 ---
 
   private setState(state: DeviceState, status: string): void {
+    // **待機に戻った瞬間に、待たせていたタイマーを鳴らす。**
+    // 会話の最中に時間が来たぶんがここで出る。
+    if ((state === "idle" || state === "error") && this.pendingRing) {
+      const timer = this.pendingRing;
+      this.pendingRing = null;
+      // いまの遷移を終わらせてから鳴らす（状態が二重に動かないように）。
+      setTimeout(() => void this.ringTimer(timer), 0);
+    }
     this.state = state;
     this.io.send({ type: "state", state, status });
   }
@@ -998,4 +1119,31 @@ async function errorMessage(response: Response): Promise<string> {
     // JSON でなければ既定の文言。
   }
   return "AI の呼び出しに失敗しました。";
+}
+
+/** 道具の返り値に入れる形。**AI が言葉にしやすいように秒と分の両方を渡す。** */
+function describe(timer: TimerView): Record<string, unknown> {
+  return {
+    label: timer.label,
+    durationSec: timer.durationSec,
+    remainingSec: timer.remainingSec,
+    remaining: spellDuration(timer.remainingSec),
+  };
+}
+
+/**
+ * 秒を「3分」「1分30秒」の形にする。
+ *
+ * **読み上げる文に使う。** 「180秒が経ったのだ」では通じない。
+ */
+function spellDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}秒`;
+  const min = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (min >= 60) {
+    const hour = Math.floor(min / 60);
+    const restMin = min % 60;
+    return restMin ? `${hour}時間${restMin}分` : `${hour}時間`;
+  }
+  return rest ? `${min}分${rest}秒` : `${min}分`;
 }
