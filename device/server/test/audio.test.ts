@@ -6,7 +6,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { Endpointer, NoiseFloor } from "../src/audio/endpoint.ts";
-import { FRAME_MS, SAMPLE_RATE, encodeWav, rms, wavDurationMs } from "../src/audio/format.ts";
+import { FRAME_MS, SAMPLE_RATE, encodeWav, rms, wavDurationMs,
+  splitWav,
+} from "../src/audio/format.ts";
 import { RingBuffer } from "../src/audio/ring.ts";
 
 const FRAME = 1280; // 80ms
@@ -176,4 +178,51 @@ test("暗騒音の推定は実測に寄っていく", () => {
 
   assert.ok(floor.current > before, "上がっていない");
   assert.ok(floor.current <= rms(hum), "実際の音量を超えている");
+});
+
+test("長い WAV は刻んで送る", () => {
+  // 3 秒ぶん。500ms 刻みなので 6 つになる。
+  const pcm = new Int16Array(SAMPLE_RATE * 3);
+  for (let i = 0; i < pcm.length; i += 1) pcm[i] = (i % 1000) - 500;
+  const parts = splitWav(encodeWav(pcm));
+
+  assert.equal(parts.length, 6);
+  // **繋ぐと元に戻る。** 切り口で音が飛ばないことの確認。
+  const back: number[] = [];
+  for (const part of parts) {
+    const d = part.subarray(44);
+    for (let i = 0; i + 1 < d.length; i += 2) back.push(d.readInt16LE(i));
+  }
+  assert.equal(back.length, pcm.length);
+  assert.deepEqual(back.slice(0, 100), Array.from(pcm.slice(0, 100)));
+  // 継ぎ目も合っているか（1つ目の終わりと2つ目の頭）。
+  const seam = SAMPLE_RATE / 2;
+  assert.equal(back[seam - 1], pcm[seam - 1]);
+  assert.equal(back[seam], pcm[seam]);
+});
+
+test("短い WAV は刻まない", () => {
+  // 1 かたまりに収まるなら、そのまま 1 つで返す。
+  const pcm = new Int16Array(SAMPLE_RATE / 4); // 250ms
+  const wav = encodeWav(pcm);
+  assert.deepEqual(splitWav(wav), [wav]);
+});
+
+test("**壊れた WAV はそのまま返す**", () => {
+  // 呼ぶ側に分岐を持たせない。読めなければ触らない。
+  const junk = Buffer.from("これは WAV ではない");
+  assert.deepEqual(splitWav(junk), [junk]);
+});
+
+test("刻んだそれぞれが単体で鳴らせる", () => {
+  // デバイスの Wav.decode はヘッダを見るので、
+  // **かたまりごとにヘッダが要る**。長さも読めること。
+  const pcm = new Int16Array(SAMPLE_RATE * 2);
+  const parts = splitWav(encodeWav(pcm));
+  for (const part of parts) {
+    assert.equal(part.toString("ascii", 0, 4), "RIFF");
+    assert.ok(wavDurationMs(part) > 0);
+  }
+  const total = parts.reduce((sum, p) => sum + wavDurationMs(p), 0);
+  assert.ok(Math.abs(total - 2000) < 1, `合計 ${total}ms`);
 });

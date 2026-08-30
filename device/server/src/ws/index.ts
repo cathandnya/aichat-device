@@ -22,6 +22,7 @@ import {
 } from "../chats/types.ts";
 import type { Config } from "../config.ts";
 import type { DeviceMessage, ServerMessage } from "./protocol.ts";
+import { splitWav } from "../audio/format.ts";
 import { Session } from "./session.ts";
 import { WakeProbe } from "./wake-probe.ts";
 
@@ -61,12 +62,21 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
       send: (message: ServerMessage) => sendJson(socket, message),
       sendAudio: async (audio: Buffer) => {
         const emotion = session.takeEmotion();
-        sendJson(socket, {
-          type: "audio",
-          bytes: audio.byteLength,
-          ...(emotion ? { emotion } : {}),
-        });
-        await sendBinary(socket, audio);
+        // **刻んで送る。** 1 文まるごとだと送り切るまでデバイスが黙る
+        // （実測で最大 494KB）。切って順に送れば最初のかたまりで鳴り始める。
+        const parts = splitWav(audio);
+        let first = true;
+        for (const part of parts) {
+          sendJson(socket, {
+            type: "audio",
+            bytes: part.byteLength,
+            // **表情は最初のかたまりだけ。** 毎回付けると文の途中で
+            // 顔が切り替わり直す。
+            ...(emotion && first ? { emotion } : {}),
+          });
+          first = false;
+          await sendBinary(socket, part);
+        }
       },
     }, deviceId);
 

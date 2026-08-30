@@ -75,6 +75,70 @@ export function wavDurationMs(wav: Buffer): number {
   return 0;
 }
 
+/**
+ * WAV を短いかたまりに切る。**鳴り始めを速くするため。**
+ *
+ * VOICEVOX は 1 文まるごと返すので、長い文は 1 メッセージが数百 KB に
+ * なる（実測で最大 494KB）。WebSocket は送り切るまで次に進まないので、
+ * **その間デバイスは黙って待つ**。切って順に送れば、最初のかたまりが
+ * 届いた時点で鳴り始められる。
+ *
+ * 切り口はそのまま繋がる（PCM をバイト単位で分けるだけ）ので、
+ * 音は途切れない。**それぞれに WAV のヘッダを付ける**——デバイスの
+ * `Wav.decode` はヘッダを見て鳴らすため、生の PCM では受け取れない。
+ *
+ * 読めない WAV は切らずにそのまま返す（呼ぶ側で分岐させない）。
+ */
+export function splitWav(wav: Buffer, chunkMs = CHUNK_MS): Buffer[] {
+  if (wav.length < 44 || wav.toString("ascii", 0, 4) !== "RIFF") return [wav];
+
+  let sampleRate = 0;
+  let channels = 1;
+  let offset = 12;
+  while (offset + 8 <= wav.length) {
+    const id = wav.toString("ascii", offset, offset + 4);
+    const size = wav.readUInt32LE(offset + 4);
+    const body = offset + 8;
+
+    if (id === "fmt " && size >= 16) {
+      channels = wav.readUInt16LE(body + 2);
+      sampleRate = wav.readUInt32LE(body + 4);
+    }
+    if (id === "data") {
+      if (!sampleRate || channels !== 1) return [wav];
+      const bytes = Math.min(size, wav.length - body);
+      const data = wav.subarray(body, body + bytes);
+
+      // 1 かたまりのサンプル数。**偶数バイト境界に揃える**（16bit なので）。
+      const per = Math.max(1, Math.floor((sampleRate * chunkMs) / 1000));
+      if (data.length <= per * 2) return [wav];
+
+      const out: Buffer[] = [];
+      for (let at = 0; at < data.length; at += per * 2) {
+        const slice = data.subarray(at, Math.min(at + per * 2, data.length));
+        // 端数が出たら捨てる（半端なサンプルは鳴らせない）。
+        const usable = slice.length - (slice.length % 2);
+        if (usable <= 0) continue;
+        const pcm = new Int16Array(usable / 2);
+        for (let i = 0; i < pcm.length; i += 1) pcm[i] = slice.readInt16LE(i * 2);
+        out.push(encodeWav(pcm, sampleRate));
+      }
+      return out.length > 0 ? out : [wav];
+    }
+    offset = body + size + (size % 2);
+  }
+  return [wav];
+}
+
+/**
+ * 1 かたまりの長さ。
+ *
+ * **短すぎると予告（JSON）の往復が増える。** 1 かたまりごとに
+ * `{"type":"audio"}` を先に送る決まりなので、刻むほど回数が増える。
+ * 500ms なら 3 秒の文で 6 回。鳴り始めは 1/6 の待ちで済む。
+ */
+const CHUNK_MS = 500;
+
 /** 実効音量（0〜1）。無音判定に使う。 */
 export function rms(pcm: Int16Array): number {
   if (pcm.length === 0) return 0;

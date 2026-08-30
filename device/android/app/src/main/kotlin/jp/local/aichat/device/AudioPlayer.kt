@@ -247,10 +247,17 @@ class AudioPlayer(
             //
             // エコー消去が効くようになれば要らなくなるが、**効かなかった
             // ときの退路**でもあるので残す。
-            try {
-                Thread.sleep(TAIL_MS)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
+            //
+            // ★ **次が控えているなら伏せない。** サーバーは 1 文を
+            // 500ms ずつに刻んで送るので、かたまりごとに 350ms 待つと
+            // **文の途中に沈黙が入る**（3 秒の文で 2 秒ぶん）。
+            // 伏せたいのは「本当に鳴り終わったあと」だけ。
+            if (queue.isEmpty()) {
+                try {
+                    Thread.sleep(TAIL_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
             }
             playing = false
             try {
