@@ -277,7 +277,15 @@ class MainActivity : Activity() {
             // **気づいたことをすぐ返す。** 聞き取りが始まるまで無反応だと、
             // 呼んだ人はもう一度呼んでしまう。
             // 音が無ければ鳴らさない（読み込みに失敗すると 0 が返る）。
-            Event.Wake -> if (wakeSound != 0) sounds?.play(wakeSound, 1f, 1f, 1, 0, 1f)
+            Event.Wake -> {
+                // ★ **鳴っているものは捨てる。**
+                //
+                // 読み上げ中に呼ばれたときは「割り込み」なので、
+                // 前の答えを最後まで喋られると邪魔でしかない。
+                // 待機中に呼ばれたときは鳴っていないので何も起きない。
+                player.cancel()
+                if (wakeSound != 0) sounds?.play(wakeSound, 1f, 1f, 1, 0, 1f)
+            }
             is Event.EmotionChanged -> {
                 view.emotion = event.emotion
                 view.invalidate()
