@@ -144,6 +144,15 @@ class MainActivity : Activity() {
                     // 戻るので、**駄目なら放っておいても元の挙動に戻る**。
                     if (!player.playing || (aecAllowed && mic?.aec?.ready == true)) {
                         device.sendFrame(frame, length)
+                    } else if (aecProbe) {
+                        // **測るためだけに送る。**
+                        //
+                        // 消去が効いているかは「読み上げ中に自分の声が
+                        // 文字になるか」でしか分からない。サーバー側は
+                        // `AICHAT_AEC_PROBE=1` のとき、読み上げ中の音を
+                        // **書き起こすだけで起動はしない**ので、ここで
+                        // 送っても本番の挙動は変わらない。
+                        device.sendFrame(frame, length)
                     }
                 },
                 reference = echo,
@@ -184,6 +193,23 @@ class MainActivity : Activity() {
      *
      * `off` 以外（`on` など）を渡せば戻る。
      */
+    /**
+     * 測定のためだけに、読み上げ中も送るか。**既定は false。**
+     *
+     *     adb shell am start -n jp.local.aichat.device/.MainActivity \
+     *       --es aecprobe on
+     *
+     * 起動するかどうかはサーバー側が決める（`AICHAT_AEC_PROBE=1` でも
+     * 書き起こすだけ）。**段階 4 の判定に使い、済んだら off に戻す。**
+     */
+    private val aecProbe: Boolean by lazy {
+        val prefs = getSharedPreferences("aichat-device", Context.MODE_PRIVATE)
+        intent?.getStringExtra("aecprobe")?.let {
+            prefs.edit().putBoolean("aecprobe", it != "off").apply()
+        }
+        prefs.getBoolean("aecprobe", false)
+    }
+
     private val aecAllowed: Boolean by lazy {
         val prefs = getSharedPreferences("aichat-device", Context.MODE_PRIVATE)
         intent?.getStringExtra("aec")?.let {

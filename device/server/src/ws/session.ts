@@ -109,6 +109,17 @@ export class Session {
   /** 判定が走っている間は重ねて走らせない。 */
   private checking = false;
 
+  /**
+   * エコー消去の効きを測るためだけの覗き見。`AICHAT_AEC_PROBE=1`。
+   *
+   * **読み上げ中に自分の声が文字になるか**を見る。数値（ERLE）が
+   * 出ていても書き起こしが通るなら意味がないので、こちらが本当の
+   * 合格条件になる。起動はしないので、本番の挙動は変わらない。
+   */
+  private readonly probe = process.env.AICHAT_AEC_PROBE === "1";
+  private sinceProbeMs = 0;
+  private probing = false;
+
   /** 聞き取り中に溜める塊。 */
   private utterance: Int16Array[] = [];
   private endpointer: Endpointer | null = null;
@@ -213,6 +224,15 @@ export class Session {
         // **読み上げ中はウェイクワードを判定しない。**
         // 常時マイクが開いているので、判定を続けると自分の声で
         // 起動し続ける（エコーキャンセルを持たないため）。
+        //
+        // ただし `AICHAT_AEC_PROBE=1` のときだけ、**判定はせずに
+        // 書き起こしだけ**する。エコー消去が効いているかは
+        // 「読み上げ中に自分の声が文字になるか」でしか分からないので、
+        // その計器。**起動はしない**ので本番の挙動は変わらない。
+        if (this.probe) {
+          this.ring.push(frame);
+          this.tickProbe();
+        }
         break;
     }
   }
@@ -271,6 +291,46 @@ export class Session {
       })
       .finally(() => {
         this.checking = false;
+      });
+  }
+
+  /**
+   * 読み上げ中の書き起こし。**測るだけで、何もしない。**
+   *
+   * 出る文字がそのままエコー消去の成績になる。
+   *
+   *   何も出ない        理想。声として成立していない
+   *   「んー」など      良い。消え残りはあるが言葉になっていない
+   *   「ずんだもんなのだ」最悪。ゲートを開けたら自己起動する
+   */
+  private tickProbe(): void {
+    this.sinceProbeMs += FRAME_MS;
+    if (this.probing || this.sinceProbeMs < WAKE_HOP_SEC * 1000) return;
+    if (this.ring.length < WAKE_WINDOW_SEC * SAMPLE_RATE * 0.5) return;
+
+    this.sinceProbeMs = 0;
+    this.probing = true;
+
+    const window = this.ring.last(WAKE_WINDOW_SEC);
+    const saved = readConfig();
+
+    void detectWake(
+      window,
+      saved.wakeWords,
+      saved.sttModel,
+      runtimeFrom(this.config),
+      transcribe,
+    )
+      .then(({ fired, heard }) => {
+        if (heard) {
+          console.log(`[probe] 読み上げ中に聞こえた: ${fired ? "★起動語" : "     "} 「${heard}」`);
+        }
+      })
+      .catch((e) => {
+        console.error("[probe] 落ちました:", e);
+      })
+      .finally(() => {
+        this.probing = false;
       });
   }
 

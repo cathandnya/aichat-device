@@ -16,22 +16,36 @@ package jp.local.aichat.device
  * 後の音は取れないし、取る必要もない。リサンプルは線形時不変なので、
  * その差はフィルタが部屋の伝達関数の一部として吸収する。
  *
- * ### 位置の数え方
+ * ### 位置の数え方 ★
  *
- * 文ごとに `AudioTrack` を作り直すが、**位置は通しで数える**。
- * track を跨いでも連続した時間軸になるので、マイク側は
- * 「いまの再生位置 − 遅延」で引ける。
+ * **「積んだ位置」と「鳴った位置」を分ける。** ここを混ぜると全部ずれる。
+ *
+ * `AudioTrack.write()` には文をまるごと渡すので、**積んだ位置は一瞬で
+ * 文の終わりまで飛ぶ**。3 秒の文なら、鳴り始めた直後にはもう 3 秒ぶんが
+ * 積まれている。積んだ位置を基準に引くと、まだ鳴っていない先の音を
+ * 「いま鳴っている音」として消そうとすることになる。
+ *
+ * だから引くときは**再生位置**（`playbackHeadPosition`）を基準にする。
+ * これは実際にデバイスへ渡った量なので、時間軸として信用できる。
+ * track を跨いでも連続するよう、開始位置を足して通しで数える。
  */
 class EchoReference {
 
     /** 16kHz mono の輪。8 秒ぶん持つ（`RingBuffer` と同じ長さ）。 */
     private val ring = ShortArray(Format.SAMPLE_RATE * SECONDS)
 
-    /** これまでに積んだ通算サンプル数。**巻き戻らない。** */
+    /** これまでに**積んだ**通算サンプル数。**巻き戻らない。** */
     @Volatile private var written = 0L
 
-    /** いま鳴っている track の、輪の中での開始位置。 */
+    /** いま鳴っている track が、輪のどこから始まるか。 */
     @Volatile private var trackStart = 0L
+
+    /**
+     * いま**鳴った**ところ（通し）。`playbackHeadPosition` から作る。
+     *
+     * これが引くときの基準。積んだ位置ではない。
+     */
+    @Volatile private var played = 0L
 
     /** 鳴っているか。false の間は参照を返さない。 */
     @Volatile var active = false
@@ -40,18 +54,30 @@ class EchoReference {
     /** 新しい文を鳴らし始める。**係数は消さない**（部屋は変わらない）。 */
     @Synchronized fun beginTrack() {
         trackStart = written
+        played = written
         active = true
+    }
+
+    /**
+     * どこまで鳴ったかを知らせる。**再生側が繰り返し呼ぶ。**
+     *
+     * `frames` は `AudioTrack.playbackHeadPosition`（その track の中での
+     * 位置）。track を跨いで連続するよう開始位置を足す。
+     */
+    @Synchronized fun progress(frames: Int) {
+        played = trackStart + frames
     }
 
     /**
      * 鳴らし終わった／やめた。
      *
-     * `playedFrames` は実際に鳴った長さ（`playbackHeadPosition`）。
-     * **途中で止めたぶんは捨てる。** 残すと、鳴っていない音を
-     * 「鳴った」ことにして引いてしまい、フィルタが壊れる。
+     * `playedFrames` は実際に鳴った長さ。**途中で止めたぶんは捨てる。**
+     * 残すと、鳴っていない音を「鳴った」ことにして次の文が引いてしまう。
+     * **止める操作は実装済みなので必ず起きる。**
      */
     @Synchronized fun endTrack(playedFrames: Int) {
-        val played = trackStart + playedFrames
+        played = trackStart + playedFrames
+        // 鳴らなかったぶんは無かったことにする。
         if (played < written) written = played
         active = false
     }
@@ -96,8 +122,13 @@ class EchoReference {
     @Synchronized fun read(count: Int, delaySamples: Int, into: ShortArray): Boolean {
         if (!active) return false
 
-        val from = written - delaySamples - count
+        // ★ **基準は「鳴った位置」。** 積んだ位置（`written`）ではない。
+        // `write()` は文をまるごと渡すので、積んだ位置は鳴り始めた直後に
+        // もう文末まで飛んでいる。そちらを使うと未来の音を消そうとする。
+        val from = played - delaySamples - count
         if (from < 0) return false
+        // まだ積んでいない先は読めない。
+        if (from + count > written) return false
         // 輪から溢れて上書きされていたら諦める。
         if (written - from > ring.size) return false
 

@@ -6,8 +6,8 @@
  * C 側に条件分岐が増えると、実機でしか再現しない不具合の置き場所が
  * 増える。
  *
- * 段階 1 では `PASS_THROUGH` を立てて**無加工で返す**。NDK のビルドと
- * JNI の受け渡しだけを先に確かめるため。
+ * `PASS_THROUGH` を立てると**無加工で返す**。NDK のビルドと JNI の
+ * 受け渡しだけを切り離して確かめるための口で、普段は 0。
  */
 
 #include <jni.h>
@@ -23,7 +23,7 @@
  * ここが 1 の間は、AEC の中身が間違っていても本番の音は変わらない。
  * ビルドと受け渡しが通ったことを確かめてから 0 にする。
  */
-#define PASS_THROUGH 1
+#define PASS_THROUGH 0
 
 typedef struct {
     SpeexEchoState *echo;

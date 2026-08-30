@@ -182,6 +182,10 @@ class AudioPlayer(
                 val wrote = track.write(pcm.samples, offset, pcm.samples.size - offset)
                 if (wrote <= 0) break
                 offset += wrote
+                // **書いている途中も知らせる。** `write()` は空くまで
+                // ブロックするので、長い文ではここに数百 ms 留まる。
+                // 知らせないと、その間マイク側の基準が止まる。
+                reference?.progress(track.playbackHeadPosition)
             }
             // **鳴り終わるまで待つ。** 書き終えた時点ではまだ鳴っている。
             // ここで戻ると口パクが先に止まる。
@@ -206,6 +210,7 @@ class AudioPlayer(
                 var stalled = 0
                 while (mine == generation && track.playbackHeadPosition < total) {
                     val before = track.playbackHeadPosition
+                    reference?.progress(before)
                     Thread.sleep(20)
                     // 進まなくなったら諦める。**永久に待たない。**
                     if (track.playbackHeadPosition == before) {
