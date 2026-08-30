@@ -156,7 +156,23 @@ class MainActivity : Activity() {
                     }
                 },
                 reference = echo,
-            ).also { it.open() }
+            ).also { engine ->
+                engine.open()
+                // **参照とマイクを生のまま落とす。** 波形で確かめる用。
+                // home アプリなので `--es` が届かないことがある。
+                // prefs も見る（`aecdump` を true にすれば落ちる）。
+                val prefs = getSharedPreferences("aichat-device", Context.MODE_PRIVATE)
+                intent?.getStringExtra("aecdump")?.let {
+                    prefs.edit().putBoolean("aecdump", it == "on").apply()
+                }
+                if (prefs.getBoolean("aecdump", false)) {
+                    val file = java.io.File(getExternalFilesDir(null), "aec.raw")
+                    engine.aec?.dump = java.io.BufferedOutputStream(
+                        java.io.FileOutputStream(file),
+                    )
+                    Log.i(TAG, "参照を書き出します: ${file.absolutePath}")
+                }
+            }
             Log.i(TAG, "エコーキャンセル: ハード=${mic?.aecEnabled} ソフト=${Aec.ENABLED}")
         } catch (e: Exception) {
             Log.e(TAG, "マイクを開けませんでした", e)

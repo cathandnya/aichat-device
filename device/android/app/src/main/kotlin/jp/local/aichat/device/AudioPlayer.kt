@@ -179,7 +179,7 @@ class AudioPlayer(
             // この track から直に再生位置を読む（下記）。
             reference?.beginTrack()
             reference?.push(pcm)
-            reference?.attach(track)
+            reference?.attach(track, pcm.sampleRate)
             track.play()
             var offset = 0
             while (offset < pcm.samples.size && mine == generation) {

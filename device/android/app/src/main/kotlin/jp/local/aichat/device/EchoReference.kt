@@ -54,6 +54,9 @@ class EchoReference {
      */
     @Volatile private var track: android.media.AudioTrack? = null
 
+    /** いま鳴らしている track のレート。**16kHz 換算に要る。** */
+    @Volatile private var trackRate = Format.SAMPLE_RATE
+
     /** 鳴っているか。false の間は参照を返さない。 */
     @Volatile var active = false
         private set
@@ -64,9 +67,16 @@ class EchoReference {
         active = true
     }
 
-    /** 鳴らす track を渡す。**積んだ後、`play()` の前に呼ぶ。** */
-    @Synchronized fun attach(track: android.media.AudioTrack) {
+    /**
+     * 鳴らす track を渡す。**積んだ後、`play()` の前に呼ぶ。**
+     *
+     * レートも一緒に覚える。`playbackHeadPosition` は**その track の
+     * レートで数えたフレーム数**を返すのに対し、こちらは 16kHz に
+     * 落として積んでいる。**単位が違う。**
+     */
+    @Synchronized fun attach(track: android.media.AudioTrack, sampleRate: Int) {
         this.track = track
+        this.trackRate = if (sampleRate > 0) sampleRate else Format.SAMPLE_RATE
     }
 
     /** 鳴らし終わった track を手放す。 */
@@ -81,11 +91,20 @@ class EchoReference {
      */
     private fun playedNow(): Long {
         val current = track ?: return trackStart
-        return trackStart + try {
+        val head = try {
             current.playbackHeadPosition.toLong() and 0xffff_ffffL
         } catch (_: Exception) {
             0L
         }
+        // ★ **16kHz に換算する。**
+        //
+        // `playbackHeadPosition` は track のレート（VOICEVOX は 24kHz）で
+        // 数える。輪は 16kHz で積んでいるので、そのまま足すと**単位が
+        // 違ったまま**になり、実測で 1.7〜3.2 秒も先行した。参照が
+        // まったく別の時刻を指すので、消えるはずがない。
+        val here = head * Format.SAMPLE_RATE / trackRate
+        // 積んだ以上には進まない。鳴り終わっても頭は数え続けるため。
+        return minOf(trackStart + here, written)
     }
 
     /**

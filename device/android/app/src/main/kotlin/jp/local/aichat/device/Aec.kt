@@ -50,6 +50,24 @@ class Aec {
     private var processed = 0
 
     /**
+     * 遅延の実測。**マイクと参照の包絡（RMS 列）の相互相関で測る。**
+     *
+     * サンプル単位の相関は重いが、20ms ごとの RMS 同士なら軽い。
+     * 粗く合えば残りは speexdsp のフィルタ長が吸う。
+     *
+     * **ここを測らずに決め打ちしていたのが敗因だった。** 120ms と
+     * 置いていたが、実際に合っている保証がどこにも無かった。
+     */
+    private val micEnv = FloatArray(ENV)
+    private val refEnv = FloatArray(ENV)
+    private var envAt = 0
+    private var envFilled = 0
+
+    /** 相関で測れた遅延（ms）。**決め打ちと比べるために出す。** */
+    @Volatile var measuredDelayMs: Int = -1
+        private set
+
+    /**
      * 参照に掛ける倍率。**再生と録音の大きさの差を埋める。**
      *
      * 実測で 70 倍（37dB）開いていた。固定値ではなく、鳴っている間の
@@ -63,6 +81,18 @@ class Aec {
     /** 生の振幅。**rms だけだと「小さい」と「無音」を見分けられない。** */
     private var micPeak = 0
     private var refPeak = 0
+    /** 倍率を掛ける**前**の参照ピーク。倍率の計算はこちらを使う。 */
+    private var rawRefPeak = 0
+
+    /**
+     * マイクと参照を、消す前のまま書き出す先。**波形で確かめるため。**
+     *
+     * `--es aecdump on` のときだけ動く。左＝マイク、右＝参照の
+     * ステレオにしておくと、音として聞けば**ずれているか**が分かるし、
+     * 波形に並べれば形が合っているかも見える。数字の当てずっぽうを
+     * 止めるための口。
+     */
+    @Volatile var dump: java.io.OutputStream? = null
 
     fun open() {
         if (handle != 0L) return
@@ -95,18 +125,35 @@ class Aec {
                 val at = (base + i) * 2
                 mic[i] = ((micFrame[at + 1].toInt() shl 8) or
                     (micFrame[at].toInt() and 0xff)).toShort()
-                // ★ **参照を実際のエコーの大きさに合わせる。**
+                // ★ **参照は縮めずにそのまま渡す。**
                 //
-                // この端末は再生が大きく録音が小さい。実測で
-                // micPeak=208 に対し refPeak=14655——**70 倍（37dB）**の
-                // 開きがあった。speexdsp はエコー経路を線形フィルタとして
-                // 推定するが、これほど桁が違うと係数が極端になり収束しない
-                // （実測 ERLE 1.4〜3.7dB）。
-                //
-                // あらかじめ縮めて渡し、フィルタには**ほぼ等倍の経路**を
-                // 見せる。倍率は実測から追い込む（`refGain`）。
-                ref[i] = (reference[base + i] * refGain).toInt()
-                    .coerceIn(-32768, 32767).toShort()
+                // 一度「マイクと同じ大きさに揃える」つもりで 1/60 に
+                // 縮めていた（`refGain`）。**これは誤りだった。**
+                // speexdsp は経路の利得を自分で推定するので、こちらで
+                // 揃える必要はない。むしろ縮めると 16bit の整数では
+                // 下位が丸められ、**静かなところが 0 に潰れる**。
+                // フィルタに渡す情報が減るだけだった。
+                val raw = reference[base + i].toInt()
+                val abs = kotlin.math.abs(raw)
+                if (abs > rawRefPeak) rawRefPeak = abs
+                ref[i] = reference[base + i]
+            }
+
+            dump?.let { sink ->
+                try {
+                    val bytes = ByteArray(FRAME * 4)
+                    for (i in 0 until FRAME) {
+                        val m = mic[i].toInt()
+                        val r = ref[i].toInt()
+                        bytes[i * 4] = (m and 0xff).toByte()
+                        bytes[i * 4 + 1] = ((m shr 8) and 0xff).toByte()
+                        bytes[i * 4 + 2] = (r and 0xff).toByte()
+                        bytes[i * 4 + 3] = ((r shr 8) and 0xff).toByte()
+                    }
+                    sink.write(bytes)
+                } catch (_: Exception) {
+                    dump = null
+                }
             }
 
             nativeProcess(handle, mic, ref, out)
@@ -121,8 +168,68 @@ class Aec {
             // `processed` がまだ 49 で、収束条件を 1 つ差で落とす
             // （実機で erle=18.7dB でも ready=false になった）。
             processed += 1
+            pushEnvelope()
             accumulate()
         }
+    }
+
+    /**
+     * 20ms ごとの大きさを溜める。**遅延を測るための材料。**
+     *
+     * `mic` は消した後ではなく**入ってきたまま**を見る必要があるが、
+     * ここでは `nativeProcess` の後に呼ばれるので `mic` は入力のまま
+     * （speexdsp は `out` に書き、`mic` は触らない）。
+     */
+    private fun pushEnvelope() {
+        var m = 0.0
+        var r = 0.0
+        for (i in 0 until FRAME) {
+            m += kotlin.math.abs(mic[i].toInt()).toDouble()
+            r += kotlin.math.abs(ref[i].toInt()).toDouble()
+        }
+        micEnv[envAt] = (m / FRAME).toFloat()
+        refEnv[envAt] = (r / FRAME).toFloat()
+        envAt = (envAt + 1) % ENV
+        if (envFilled < ENV) envFilled += 1
+    }
+
+    /**
+     * 包絡の相互相関で遅延を測る。**返すのはサンプル数。**
+     *
+     * 参照をどれだけ遅らせるとマイクに一番似るか、を探す。
+     * 負の相関しか無い（＝似た形が無い）ときは -1。
+     */
+    private fun estimateDelay(): Int {
+        if (envFilled < ENV) return -1
+
+        // 時系列に並べ直す。
+        val m = FloatArray(ENV)
+        val r = FloatArray(ENV)
+        for (i in 0 until ENV) {
+            val at = (envAt + i) % ENV
+            m[i] = micEnv[at]
+            r[i] = refEnv[at]
+        }
+
+        var bestLag = -1
+        var best = 0.0
+        // 0〜400ms を 20ms 刻みで探す。
+        for (lag in 0 until ENV / 2) {
+            var sum = 0.0
+            var count = 0
+            for (i in lag until ENV) {
+                sum += m[i].toDouble() * r[i - lag].toDouble()
+                count += 1
+            }
+            if (count == 0) continue
+            val score = sum / count
+            if (score > best) {
+                best = score
+                bestLag = lag
+            }
+        }
+        if (bestLag < 0) return -1
+        return bestLag * FRAME
     }
 
     /** ERLE を測る。**1 秒ぶん溜めてから出す。**フレームごとだと暴れる。 */
@@ -161,29 +268,31 @@ class Aec {
 
         Log.i(
             TAG,
-            "erle=%.1fdB mic=%.5f out=%.5f micPeak=%d refPeak=%d gain=%.4f ready=%s".format(
+            "erle=%.1fdB mic=%.5f out=%.5f micPeak=%d refPeak=%d gain=%.4f 遅延=%dms ready=%s".format(
                 erle,
                 sqrt(micEnergy / (measured.toDouble() * FRAME)) / 32768.0,
                 sqrt(outEnergy / (measured.toDouble() * FRAME)) / 32768.0,
                 micPeak,
-                refPeak,
+                rawRefPeak,
                 refGain,
+                measuredDelayMs,
                 ready,
             ),
         )
-        // **次の窓の倍率を、いま測った比で決める。**
-        //
-        // 部屋・音量・距離で変わるので固定値にしない。急に動くと
-        // フィルタが追えないので、半分ずつ寄せる。
-        if (micPeak > 20 && refPeak > 200) {
-            val target = micPeak.toFloat() / refPeak.toFloat()
-            refGain += (target - refGain) * 0.5f
+        // **遅延を測る。** 決め打ちが合っている保証はどこにも無い。
+        val lag = estimateDelay()
+        if (lag >= 0) measuredDelayMs = lag * 1000 / Format.SAMPLE_RATE
+
+        // 参照とマイクの比。**ログに出すだけ**（縮めるのはやめた）。
+        if (micPeak > 20 && rawRefPeak > 200) {
+            refGain = micPeak.toFloat() / rawRefPeak.toFloat()
         }
         micEnergy = 0.0
         outEnergy = 0.0
         measured = 0
         micPeak = 0
         refPeak = 0
+        rawRefPeak = 0
     }
 
     /**
@@ -249,6 +358,9 @@ class Aec {
 
         /** ERLE を出す間隔。20ms × 50 = 1 秒。 */
         const val MEASURE_FRAMES = 50
+
+        /** 包絡を溜める長さ。20ms × 40 = 800ms ぶん。 */
+        const val ENV = 40
 
         init {
             System.loadLibrary("aec")

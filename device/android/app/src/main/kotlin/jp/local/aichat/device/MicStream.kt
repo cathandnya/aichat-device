@@ -99,7 +99,17 @@ class MicStream(
         val bufferBytes = maxOf(minimum, Format.FRAME_BYTES * 8) * 2
 
         val audio = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            // ★ **`MIC`（素の入力）で開く。**
+            //
+            // 元は `VOICE_COMMUNICATION` だった。端末のエコー消去に
+            // 参照を掴ませる狙いだったが、**この端末に効果チェーンは無い**
+            // （実測 `0 Effect Chains`）ので、その利点は元々無い。
+            //
+            // 一方で `VOICE_COMMUNICATION` は、プラットフォーム側が
+            // 通話向けの加工（AGC・雑音抑圧・半二重の抑え込み）を
+            // 掛けることがある。**加工は非線形なので、線形フィルタでは
+            // 消せない。** 自前で消す以上、素のまま受け取るほうがよい。
+            MediaRecorder.AudioSource.MIC,
             Format.SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
