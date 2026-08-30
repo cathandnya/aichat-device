@@ -119,9 +119,12 @@ test("無音が続けば話し終わりとみなす", () => {
 
   for (let i = 0; i < 5; i += 1) assert.equal(ep.push(loud()), null);
 
-  let result = null;
-  for (let i = 0; i < 12 && !result; i += 1) result = ep.push(quiet());
-  assert.equal(result?.reason, "speech");
+  // **無音 1 秒で確定する。** 80ms 刻みなので 12 フレーム（960ms）では
+  // まだ足りず、13 フレーム目（1040ms）で返る。**長さそのものを確かめる**
+  // ように書いてある。ここを縮めると言い切る前に切られ、伸ばすと
+  // 返事が遅くなる、という体感に直結する値。
+  for (let i = 0; i < 12; i += 1) assert.equal(ep.push(quiet()), null);
+  assert.equal(ep.push(quiet())?.reason, "speech");
 });
 
 test("一度も声がしなければ 1 秒で諦める", () => {

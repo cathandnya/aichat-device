@@ -25,7 +25,6 @@
 
 import { handleChat } from "../ai/chat.ts";
 import { stubChatResponse } from "../stub/chat.ts";
-import { looksComplete } from "../ai/complete.ts";
 import { transcribe } from "../ai/stt.ts";
 import {
   WAKE_HOP_SEC,
@@ -95,14 +94,6 @@ const MAX_SPEAKING_WAIT_MS = 60_000;
  */
 const SPOKEN_GRACE_MS = 1_500;
 
-/**
- * 言い切っていないときに、続きを待つ長さ。
- *
- * **長くてよい。** 言い切った人はここへ来ないので、待たされるのは
- * 「えーっと」と考えている人だけ。短いと結局切ってしまう。
- */
-const RESUME_WAIT_MS = 3_000;
-
 export interface SessionIO {
   send(message: ServerMessage): void;
   sendAudio(audio: Buffer): Promise<void>;
@@ -160,21 +151,6 @@ export class Session {
    * そのものをもう一度聞き取る**。それで仕切り直すと輪になる。
    */
   private justWoke = false;
-  /**
-   * 待ち直したか。**ログのためだけに持つ。**
-   *
-   * 待つかどうかの判定には使わない（回数では止めない）。
-   */
-  private resumed = false;
-  /**
-   * 続きが来ないと分かったので、もう待たない。
-   *
-   * 待ち直しの最中に無音で終わったときに立てる。これが無いと、
-   * 同じ判定でもう一度待ちに入って抜けられない。
-   */
-  private giveUpWaiting = false;
-  /** 待ち直しの前半。続きと繋いで 1 回で書き起こす。 */
-  private pending: Int16Array | null = null;
   /**
    * このチャットで「呼ばれただけ」の返事を済ませたか。
    *
@@ -450,18 +426,6 @@ export class Session {
     }, wait);
   }
 
-  /**
-   * 待ち直しをこれ以上続けられないか。
-   *
-   * **回数ではなく長さで止める。** ここを見ないと、言い淀み続ける人の
-   * 音声が `MAX_UTTERANCE_SEC` を超え、頭のほうが切り捨てられる。
-   */
-  private tooLongToWait(): boolean {
-    const held = this.pending?.length ?? 0;
-    // 続きを話す余地（3 秒ぶん）を残して止める。
-    return held >= (MAX_UTTERANCE_SEC - 3) * SAMPLE_RATE;
-  }
-
   /** 次の音声に載せる表情を取り出す。**1 回だけ返る。** */
   takeEmotion(): Emotion | null {
     const value = this.nextEmotion;
@@ -494,10 +458,6 @@ export class Session {
     this.speakingUntil = 0;
     this.utterance = [];
     this.endpointer = null;
-    // **待ち直しの前半も捨てる。** 残すと次の質問の頭に前の声が混ざる。
-    this.resumed = false;
-    this.pending = null;
-    this.giveUpWaiting = false;
     this.clearFollowTimer();
 
     if (this.chatId) {
@@ -519,19 +479,6 @@ export class Session {
     this.endpointer = null;
 
     if (result.reason === "silence") {
-      // **待ち直しの途中なら、溜めたぶんを送る。**
-      //
-      // 「えーと、それほんと。」で待ちに入り、続きが来ないまま無音に
-      // なったとき、ここで `acknowledge` に行くと**前半が捨てられて
-      // 会話が終わる**（実機で「最後しゃべってるけど終わった」）。
-      // 続きが無いだけで、聞き取れているものはある。
-      if (this.pending) {
-        // **もう待たない。** 続きが来ないことが分かったので、
-        // ここでまた `looksComplete` を見ると同じ判定で待ち続ける。
-        this.giveUpWaiting = true;
-        void this.answer();
-        return;
-      }
       // 呼ばれただけで質問が続かなかった。**失敗ではない。**
       void this.acknowledge();
       return;
@@ -545,11 +492,7 @@ export class Session {
     const controller = this.abort;
     if (!controller) return;
 
-    // **前半があれば繋いでから書き起こす。** 分けて認識して文字を繋ぐと、
-    // 境界の語が壊れる（「冷蔵庫に」＋「卵がある」が別々に化ける）。
-    const pcm = this.pending
-      ? concat([this.pending, concat(this.utterance)])
-      : concat(this.utterance);
+    const pcm = concat(this.utterance);
     this.utterance = [];
 
     this.setState("thinking", "聞き取っています");
@@ -575,6 +518,14 @@ export class Session {
     }
 
     if (controller.signal.aborted) return;
+
+    // **何と聞こえたかを必ず残す。**
+    //
+    // ウェイクワードを落とす前の `raw` を出す。落とした後だけ見ても
+    // 「呼びかけが認識されたのか、何も聞こえなかったのか」が分からない。
+    // **AEC の評価もここを見る**（読み上げ中に自分の声が文字になったら、
+    // それがそのまま出る）。
+    console.log(`[speech] 聞き取り: 「${raw}」`);
 
     const saved = readConfig();
 
@@ -608,38 +559,6 @@ export class Session {
       void this.acknowledge();
       return;
     }
-
-    // **言い切っていなければ続きを待つ。**
-    //
-    // 無音 700ms で切ると、考えながら話す人の発話が途中で送られる。
-    // かといって無音の長さを一律に伸ばすと、言い切ったときも待たされる。
-    // **末尾が言い切りの形かどうか**で分けると、迷ったときだけ待てる。
-    //
-    // **回数は数えない。** 人は「えーっと、あのー、冷蔵庫に」と何度でも
-    // 言い淀む。暴走しないのは、待つのをやめる道が 2 つあるため。
-    //
-    //   3 秒黙る       → `silence` で確定して送られる
-    //   溜めが長すぎる → 下の `tooLongToWait` で諦める
-    //
-    // 以前は 1 回だけにしていたが、2 度目の言い淀みで普通に切られた。
-    if (this.giveUpWaiting) {
-      this.giveUpWaiting = false;
-    } else if (!looksComplete(question) && !this.tooLongToWait()) {
-      console.log(`[speech] まだ続きそうなので待ちます: 「${question}」`);
-      this.resumed = true;
-      this.pending = pcm;
-      // **長めに待つ。** ここへ来るのは言い切っていないときだけなので、
-      // 待たせるのは「考えながら話している人」に限られる。
-      this.beginListening(0, RESUME_WAIT_MS);
-      return;
-    }
-    // 待ち直したぶんがどう繋がったかを残す。**判定の当たり外れは
-    // これを見て直す。**
-    if (this.resumed) {
-      console.log(`[speech] 続きを足しました: 「${question}」`);
-    }
-    this.resumed = false;
-    this.pending = null;
 
     this.io.send({ type: "question", text: question });
     this.setState("thinking", "考えています");

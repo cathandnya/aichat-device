@@ -179,7 +179,16 @@ class AudioPlayer(
             if (mine == generation) {
                 // **フレーム数で数える。** playbackHeadPosition はサンプル数
                 // ではなくフレーム数を返すので、ステレオでは半分になる。
-                val total = pcm.samples.size / maxOf(1, pcm.channels)
+                //
+                // **`samples` はバイト列。** 16bit なので 1 サンプル 2 バイト、
+                // 1 フレームは 2×チャンネル数バイト。ここを割り忘れると
+                // フレーム数が 2 倍過大になり、**再生位置が永遠に届かず**
+                // 下の `stalled` 側（約 500ms）で抜けることになる。
+                // `TAIL_MS` と合わさって尻切れはしていなかったが、
+                // **AEC は再生位置で時間を合わせる**ので、ここが正確でないと
+                // 遅延推定が丸ごとずれる。
+                val bytesPerFrame = 2 * maxOf(1, pcm.channels)
+                val total = pcm.samples.size / bytesPerFrame
                 var stalled = 0
                 while (mine == generation && track.playbackHeadPosition < total) {
                     val before = track.playbackHeadPosition
