@@ -46,6 +46,13 @@ export type ServerMessage =
   | { type: "emotion"; emotion: Emotion }
   | { type: "error"; message: string }
   /**
+   * 音量を変える。**実際に動かすのは端末。**
+   *
+   * `level` は 0〜1 の割合。サーバーは段数（機種で違う。この端末は 15 段）を
+   * 知らないので、割合で伝えて端末が自分の段数に直す。
+   */
+  | { type: "volume"; level: number }
+  /**
    * 次に届くバイナリが読み上げの音声であることの予告。
    *
    * **表情もここに載せる。** 別々に送ると、鳴り終わりを知らない
@@ -114,4 +121,11 @@ export type DeviceMessage =
    * 同じ部屋の音に対して候補を比べられるようにするため。
    * 送らなければ設定の語を使う。
    */
-  | { type: "wake-words"; words: string[] };
+  | { type: "wake-words"; words: string[] }
+  /**
+   * いまの音量（0〜1）。**繋いだ直後と、変えたあとに届く。**
+   *
+   * サーバーが覚えておいて「もう少し大きく」に答えるのに使う。
+   * 端末のボタンで変えられることもあるので、**真実は端末側**。
+   */
+  | { type: "volume"; level: number };

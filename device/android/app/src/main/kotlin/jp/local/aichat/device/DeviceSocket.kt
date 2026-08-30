@@ -49,6 +49,7 @@ class DeviceSocket(
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.i("aichat", "繋がりました")
                 retryMs = 1_000L
+                onEvent(Event.Opened)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -118,6 +119,9 @@ class DeviceSocket(
             "wake" -> onEvent(Event.Wake)
             "emotion" -> onEvent(Event.EmotionChanged(Emotion.of(json.optString("emotion"))))
             "speech-end" -> onEvent(Event.SpeechEnd)
+            "volume" -> onEvent(
+                Event.VolumeChanged(json.optDouble("level", -1.0).toFloat()),
+            )
             "error" -> onEvent(Event.Failed(json.optString("message")))
             // question / answer / sources / chat / config は文字なので使わない。
             // **取り決めは変えない。** ブラウザの画面が使い続けている。
@@ -146,6 +150,11 @@ class DeviceSocket(
     }
 
     /** やめる。 */
+    /** いまの音量を知らせる。**繋いだ直後と、変えたあとに送る。** */
+    fun volume(level: Float) {
+        socket?.send("""{"type":"volume","level":$level}""")
+    }
+
     fun cancel() {
         socket?.send("""{"type":"cancel"}""")
     }

@@ -292,6 +292,10 @@ class MainActivity : Activity() {
             }
             is Event.Audio -> player.enqueue(event.wav, event.emotion)
             Event.SpeechEnd -> player.end()
+            is Event.VolumeChanged -> applyVolume(event.level)
+            // **繋がったら今の音量を教える。** これが無いと
+            // 「もう少し大きく」の基準がサーバーに無い。
+            Event.Opened -> reportVolume()
             is Event.Failed -> Log.w(TAG, "サーバー: ${event.message}")
             Event.Closed -> {
                 view.state = State.IDLE
@@ -442,6 +446,51 @@ class MainActivity : Activity() {
 
         (getSystemService(Context.AUDIO_SERVICE) as? AudioManager)?.mode =
             AudioManager.MODE_NORMAL
+    }
+
+    /**
+     * 音量を変える。**割合（0〜1）で来るので段数に直す。**
+     *
+     * サーバーは段数を知らない（機種で違う。この端末は 15 段）。
+     * 割合で受け取って、こちらで自分の刻みに落とす。
+     */
+    private fun applyVolume(level: Float) {
+        if (level < 0f) return
+        val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val step = Math.round(level.coerceIn(0f, 1f) * max)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, step, 0)
+        Log.i(TAG, "音量: ${(level * 100).toInt()}% ($step/$max)")
+        // **変えたあとの実際の値を返す。** 刻みに丸められるので、
+        // 頼まれた割合とは少しずれる。サーバーには本当の値を持たせる。
+        reportVolume()
+    }
+
+    /** いまの音量をサーバーに知らせる。 */
+    private fun reportVolume() {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (max <= 0) return
+        val now = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        socket?.volume(now.toFloat() / max)
+    }
+
+    /**
+     * 音量ボタンを押されたときも、変わった値を知らせる。
+     *
+     * **ボタンでも変えられる**ので、こちらを見ていないとサーバーの控えが
+     * 古いままになり、「もう少し大きく」がずれた値から計算される。
+     * 押した処理そのものは OS に任せて、結果だけ拾う。
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        val handled = super.dispatchKeyEvent(event)
+        val code = event.keyCode
+        val isVolume =
+            code == android.view.KeyEvent.KEYCODE_VOLUME_UP ||
+                code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN
+        // 離したときに1回だけ。押しっぱなしで毎回送らない。
+        if (isVolume && event.action == android.view.KeyEvent.ACTION_UP) reportVolume()
+        return handled
     }
 
     private fun hideSystemBars() {

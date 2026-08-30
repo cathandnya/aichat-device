@@ -177,6 +177,14 @@ export class Session {
    */
   private pendingRing: Timer | null = null;
   /**
+   * いまの音量（0〜1）。**端末が教えてくれた値。**
+   *
+   * サーバーは段数を知らないので割合で持つ。端末のボタンでも変えられる
+   * ので、**真実は端末側**。こちらは「もう少し大きく」に答えるための控え。
+   * 届く前は分からないので null。
+   */
+  private volume: number | null = null;
+  /**
    * 起こした直後か。
    *
    * `startChat` はウェイクワードを含む手前まで遡るので、**呼びかけ
@@ -272,6 +280,20 @@ export class Session {
   onWakeRequest(): void {
     if (this.state === "thinking" || this.state === "speaking") return;
     this.startChat();
+  }
+
+  /** 端末が音量を教えてきた。**繋いだ直後と、変えたあとに届く。** */
+  onVolume(level: number): void {
+    if (!Number.isFinite(level)) return;
+    this.volume = Math.min(Math.max(level, 0), 1);
+    console.log(`[volume] 端末はいま ${Math.round(this.volume * 100)}%`);
+  }
+
+  /** 試験用。**道具を通さずに音量だけ動かす。** */
+  setVolumeForTest(level: number): void {
+    const safe = Math.min(Math.max(level, 0), 1);
+    this.volume = safe;
+    this.io.send({ type: "volume", level: safe });
   }
 
   /** やめる。開いているチャットも閉じる。 */
@@ -933,6 +955,31 @@ export class Session {
           description: "動いているタイマーをやめる。",
           parameters: { type: "object", properties: {} },
         },
+        {
+          name: "set_volume",
+          description:
+            "音量を変える。「大きく」「小さく」なら change に増減を、" +
+            "「半分に」「最大に」なら level に 0〜1 を渡す。どちらか一方だけ。",
+          parameters: {
+            type: "object",
+            properties: {
+              change: {
+                type: "number",
+                description:
+                  "いまからの増減。少し大きくは 0.15、大きくは 0.3、少し小さくは -0.15",
+              },
+              level: {
+                type: "number",
+                description: "0〜1 で直接指定。最大は 1、半分は 0.5",
+              },
+            },
+          },
+        },
+        {
+          name: "get_volume",
+          description: "いまの音量を調べる。",
+          parameters: { type: "object", properties: {} },
+        },
       ],
       execute: async (name: string, args: Record<string, unknown>) => {
         switch (name) {
@@ -953,6 +1000,29 @@ export class Session {
           case "cancel_timer": {
             const timer = cancelTimer(this.deviceId);
             return timer ? { cancelled: true, ...describe(timer) } : { cancelled: false };
+          }
+          case "set_volume": {
+            // **端末がまだ教えてくれていないうちは、増減を扱えない。**
+            // 基準が無いので「もう少し大きく」が計算できない。
+            if (typeof args.change === "number" && this.volume === null) {
+              return { ok: false, reason: "いまの音量が分かりません" };
+            }
+            const next =
+              typeof args.level === "number"
+                ? args.level
+                : (this.volume ?? 0) + Number(args.change ?? 0);
+            if (!Number.isFinite(next)) return { ok: false, reason: "値が読めません" };
+
+            const level = Math.min(Math.max(next, 0), 1);
+            this.volume = level;
+            this.io.send({ type: "volume", level });
+            console.log(`[volume] ${Math.round(level * 100)}% にします`);
+            return { ok: true, percent: Math.round(level * 100) };
+          }
+          case "get_volume": {
+            return this.volume === null
+              ? { known: false }
+              : { known: true, percent: Math.round(this.volume * 100) };
           }
           default:
             return { error: `知らない道具です: ${name}` };

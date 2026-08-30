@@ -186,6 +186,7 @@ function onControl(session: Session, raw: string): void {
   if (message.type === "wake") session.onWakeRequest();
   if (message.type === "cancel") session.onCancel();
   if (message.type === "spoken") session.onSpoken();
+  if (message.type === "volume") session.onVolume(message.level);
 }
 
 function sendJson(socket: WebSocket, message: ServerMessage): void {

@@ -49,6 +49,10 @@ sealed interface Event {
     data class Audio(val wav: ByteArray, val emotion: Emotion?) : Event
     /** 読み上げはこれで終わり。**次の音は来ない。** */
     data object SpeechEnd : Event
+    /** 音量を変える。**0〜1 の割合**で届く。段数に直すのは端末の仕事。 */
+    data class VolumeChanged(val level: Float) : Event
+    /** 繋がった。**いまの音量を知らせる合図。** */
+    data object Opened : Event
     data class Failed(val message: String) : Event
     data object Closed : Event
 }

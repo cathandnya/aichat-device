@@ -76,6 +76,19 @@ export function createApp(config: Config): Hono {
   // `AICHAT_AEC_PROBE=1` のときだけ生きる。読み上げ中に**自分の
   // ウェイクワードを鳴らして誤爆するか**を、音量を変えながら試す。
   // これが確かめられないと「自己起動しない」と言い切れない。
+  // **試験用。** つながっている端末の音量を変える。
+  // `AICHAT_AEC_PROBE=1` のときだけ生きる（試験用の口をまとめてある）。
+  app.post("/api/volume-test", async (c) => {
+    if (process.env.AICHAT_AEC_PROBE !== "1") return c.text("off", 404);
+    const { getLiveSession } = await import("./ws/index.ts");
+    const live = getLiveSession();
+    if (!live) return c.text("端末がつながっていません", 503);
+    const level = Number((await c.req.text()).trim());
+    if (!Number.isFinite(level)) return c.text("0〜1 の数を送ってください", 400);
+    live.session.setVolumeForTest(level);
+    return c.json({ ok: true, level });
+  });
+
   app.post("/api/aec-test", async (c) => {
     if (process.env.AICHAT_AEC_PROBE !== "1") return c.text("off", 404);
     const { getLiveSession } = await import("./ws/index.ts");
