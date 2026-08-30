@@ -126,16 +126,37 @@ class EchoReference {
         // `write()` は文をまるごと渡すので、積んだ位置は鳴り始めた直後に
         // もう文末まで飛んでいる。そちらを使うと未来の音を消そうとする。
         val from = played - delaySamples - count
-        if (from < 0) return false
+        if (from < 0) {
+            note("from<0 played=$played written=$written")
+            return false
+        }
         // まだ積んでいない先は読めない。
-        if (from + count > written) return false
+        if (from + count > written) {
+            note("未来 from=$from played=$played written=$written")
+            return false
+        }
         // 輪から溢れて上書きされていたら諦める。
-        if (written - from > ring.size) return false
+        if (written - from > ring.size) {
+            note("溢れ from=$from written=$written")
+            return false
+        }
 
         for (i in 0 until count) {
             into[i] = ring[((from + i) % ring.size).toInt()]
         }
         return true
+    }
+
+    /** 引けなかった理由を、1 秒に 1 回だけ出す。**毎フレーム出すと流れる。** */
+    private var lastNote = 0L
+    private var notes = 0
+    private fun note(reason: String) {
+        notes += 1
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastNote < 1000) return
+        lastNote = now
+        android.util.Log.i("aichat-aec", "参照が引けない(${notes}回): $reason")
+        notes = 0
     }
 
     private companion object {
