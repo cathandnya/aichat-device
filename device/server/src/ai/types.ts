@@ -315,7 +315,15 @@ export interface AppConfig {
   followUpSec: number;
   /** これが聞こえたら会話を終える。空でもよい。 */
   endPhrases: string[];
-  /** 名前を呼ばれただけのときの返事。空なら黙って待つ。 */
+  /**
+   * 名前を呼ばれただけのときの返事。**既定は空で、効果音だけ。**
+   *
+   * アレクサに倣った。呼ばれるたびに声で返されると、続けて話す気を
+   * そがれる（言いかけているところに被る）。**音が鳴れば起きたことは
+   * 分かる**ので、それで足りる。
+   *
+   * 何か言わせたいときはここに文を入れる。
+   */
   wakeReply: string;
   /** これ以上あいたら別の会話とみなす（分）。 */
   conversationGapMin: number;
@@ -491,7 +499,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   wakeWords: ["ずんだもん", "すんだもん"],
   followUpSec: 8,
   endPhrases: ["ありがとう", "おわり", "もういい", "またね"],
-  wakeReply: "はい？",
+  // **既定は空。** 効果音だけで返事はしない（アレクサに合わせた）。
+  wakeReply: "",
   conversationGapMin: 10,
   contextTurns: 5,
   systemPrompt: "",

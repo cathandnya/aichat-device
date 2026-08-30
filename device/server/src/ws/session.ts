@@ -1071,21 +1071,35 @@ export class Session {
     this.acknowledged = true;
 
     const reply = readConfig().wakeReply.trim();
-    if (reply) {
-      this.setState("speaking", "はい");
-      try {
-        const wav = await synthesize(
-          reply,
-          this.config,
-          controller?.signal ?? AbortSignal.timeout(20_000),
-        );
-        if (controller?.signal.aborted) return;
-        await this.sendAudio(wav);
-      } catch (error) {
-        // 鳴らなくても待つ側に進む。返事が出ないだけで
-        // 会話ができなくなるほうが困る。
-        console.error("[ack] 返事を鳴らせませんでした:", error);
-      }
+
+    // ★ **返事をしないときは、その場で窓を開ける。**
+    //
+    // 既定は空（効果音だけ。アレクサに合わせた）。このとき `speaking` に
+    // 入らないので、`onSpoken` も `armSpokenFallback` も**素通りする**
+    // （どちらも `state === "speaking"` を条件にしている）。
+    // 素直に書くと**窓が永遠に開かず、音が鳴ったあと何も聞かない**
+    // 機械になる。
+    if (!reply) {
+      if (controller?.signal.aborted) return;
+      this.spoken = true;
+      this.spokenAt = Date.now();
+      this.openFollowUp();
+      return;
+    }
+
+    this.setState("speaking", "はい");
+    try {
+      const wav = await synthesize(
+        reply,
+        this.config,
+        controller?.signal ?? AbortSignal.timeout(20_000),
+      );
+      if (controller?.signal.aborted) return;
+      await this.sendAudio(wav);
+    } catch (error) {
+      // 鳴らなくても待つ側に進む。返事が出ないだけで
+      // 会話ができなくなるほうが困る。
+      console.error("[ack] 返事を鳴らせませんでした:", error);
     }
 
     if (controller?.signal.aborted) return;

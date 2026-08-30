@@ -394,12 +394,14 @@ function settingsPage(
          <fieldset>
            <legend>呼ばれたときの返事</legend>
            <input type="text" name="wakeReply" value="${escapeHtml(config.wakeReply)}"
-             maxlength="${MAX_WAKE_REPLY_LENGTH}" placeholder="はい？"
+             maxlength="${MAX_WAKE_REPLY_LENGTH}" placeholder="空なら効果音だけ"
              style="width:100%;padding:.6rem;border-radius:8px;border:1px solid #d5d5d8">
            <p class="hint">
              名前を呼ばれただけで質問が続かなかったときに、これを読み上げて待ちます。
              <strong>AI は呼ばないので費用はかかりません。</strong>
-             空にすると、返事をせずに黙って待ちます。
+             <strong>既定は空</strong>で、効果音だけ鳴らして黙って待ちます
+             （アレクサと同じ）。声で返すと、続けて話そうとしているところに
+             被るためです。何か言わせたいときだけ入れてください。
            </p>
          </fieldset>
 
