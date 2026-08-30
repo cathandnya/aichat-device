@@ -56,6 +56,38 @@ Java_jp_local_aichat_device_Aec_nativeInit(
     if (aec->preprocess) {
         speex_preprocess_ctl(
             aec->preprocess, SPEEX_PREPROCESS_SET_ECHO_STATE, aec->echo);
+
+        /*
+         * ★ **残差抑圧を強くする。**
+         *
+         * フィルタが収束するまでの 1〜2 秒は、引き算だけでは消えない。
+         * 実測で erle 0.3dB → 3.2 → 6.1 と上がっていく間に、
+         * 端末が自分のウェイクワードで**誤爆した**。危ないのは
+         * まさにこの収束前の区間。
+         *
+         * 残差抑圧は**収束を待たずに効く**（消し残りの大きさを見て
+         * 帯域ごとに下げる）ので、ここを強くするのが要。
+         *
+         * 既定は待機時 -40dB / near-end 検出時 -15dB。この機械は
+         * **自分の声を浴びている間、near-end と誤って判定されやすい**
+         * ので、そちらも深くする。人の声まで削るが、下流は STT で
+         * あって人の耳ではない。
+         */
+        int suppress = -50;
+        int suppress_active = -45;
+        speex_preprocess_ctl(
+            aec->preprocess, SPEEX_PREPROCESS_SET_ECHO_SUPPRESS, &suppress);
+        speex_preprocess_ctl(
+            aec->preprocess, SPEEX_PREPROCESS_SET_ECHO_SUPPRESS_ACTIVE,
+            &suppress_active);
+
+        /* 雑音抑圧も入れる。入力が小さいので底上げの助けになる。 */
+        int denoise = 1;
+        speex_preprocess_ctl(
+            aec->preprocess, SPEEX_PREPROCESS_SET_DENOISE, &denoise);
+        /* **AGC は入れない。** 無音を持ち上げると誤検出が増える。 */
+        int agc = 0;
+        speex_preprocess_ctl(aec->preprocess, SPEEX_PREPROCESS_SET_AGC, &agc);
     }
 
     return (jlong) (intptr_t) aec;

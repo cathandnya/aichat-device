@@ -70,6 +70,15 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
       },
     }, deviceId);
 
+    // **試験用に、つながっている端末を1つだけ覚えておく。**
+    //
+    // `AICHAT_AEC_PROBE=1` のときだけ。読み上げ中に自分のウェイクワードを
+    // 鳴らして誤爆するかを試すのに、外から喋らせる口が要る。
+    if (process.env.AICHAT_AEC_PROBE === "1") {
+        setLiveSession({ session, socket });
+        socket.on("close", () => setLiveSession(null));
+    }
+
     socket.on("message", (data: Buffer, isBinary: boolean) => {
       if (isBinary) {
         onAudio(session, data);
@@ -90,6 +99,22 @@ export function attachWebSocket(server: Server, config: Config): WebSocketServer
   });
 
   return wss;
+}
+
+/**
+ * 試験用に覚えておく、いまつながっている端末。
+ *
+ * **`AICHAT_AEC_PROBE=1` のときだけ入る。** 本番では常に null。
+ */
+let live: { session: Session; socket: WebSocket } | null = null;
+
+/** **関数で取る。** `let` の再代入は import 側から見えないことがある。 */
+export function getLiveSession(): { session: Session; socket: WebSocket } | null {
+  return live;
+}
+
+function setLiveSession(v: { session: Session; socket: WebSocket } | null): void {
+  live = v;
 }
 
 /** 判定だけの接続。チャットも AI も動かない。 */

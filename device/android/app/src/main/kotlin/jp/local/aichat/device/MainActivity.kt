@@ -157,6 +157,9 @@ class MainActivity : Activity() {
                 },
                 reference = echo,
             ).also { engine ->
+                // **`aec off` なら消去そのものを止める。**
+                // ゲートだけ閉じても消去は走ってしまい、切り分けにならない。
+                if (!aecAllowed) engine.disableCancellation()
                 engine.open()
                 // **参照とマイクを生のまま落とす。** 波形で確かめる用。
                 // home アプリなので `--es` が届かないことがある。
@@ -279,7 +282,10 @@ class MainActivity : Activity() {
                 view.emotion = event.emotion
                 view.invalidate()
             }
-            is Event.Audio -> player.enqueue(event.wav, event.emotion)
+            is Event.Audio -> {
+                Log.i(TAG, "音声を受け取りました: ${event.wav.size}バイト")
+                player.enqueue(event.wav, event.emotion)
+            }
             Event.SpeechEnd -> player.end()
             is Event.Failed -> Log.w(TAG, "サーバー: ${event.message}")
             Event.Closed -> {

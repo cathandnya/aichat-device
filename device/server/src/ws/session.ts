@@ -516,6 +516,21 @@ export class Session {
   }
 
   /** 音声を送り、鳴り終わる時刻を進める。読み上げは必ずここを通す。 */
+  /**
+   * 試験用に、任意の音声を鳴らす。**AI もチャットも通さない。**
+   *
+   * 読み上げ中に自分のウェイクワードを鳴らして誤爆するかを試す口。
+   * `speaking` にしてから鳴らすので、probe の判定もそのまま働く。
+   */
+  async speakForTest(wav: Buffer): Promise<void> {
+    this.setState("speaking", "試験中");
+    this.spoken = false;
+    await this.sendAudio(wav);
+    this.io.send({ type: "speech-end" });
+    // 鳴り終わったら待機に戻す。端末の合図（onSpoken）で戻る。
+    this.armSpokenFallback();
+  }
+
   private async sendAudio(audio: Buffer): Promise<void> {
     const now = Date.now();
     this.speakingUntil =

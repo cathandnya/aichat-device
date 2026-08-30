@@ -30,6 +30,7 @@ import {
 } from "./routes/chats.ts";
 import { handleConfig } from "./routes/config.ts";
 import { handleStt } from "./routes/stt.ts";
+import { synthesize } from "./speech/tts.ts";
 import { handleTts } from "./routes/tts.ts";
 import { handleStubChat } from "./stub/chat.ts";
 import { handleStubConfig } from "./stub/config.ts";
@@ -69,6 +70,22 @@ export function createApp(config: Config): Hono {
   // 読み上げはスタブにしない。VOICEVOX はローカルで無料なので、
   // 本物を鳴らさないと文の区切り方や間の良し悪しを確かめられない。
   app.post("/api/tts", (c) => handleTts(c, config));
+
+  // **試験用。** つながっている端末に任意の文を喋らせる。
+  //
+  // `AICHAT_AEC_PROBE=1` のときだけ生きる。読み上げ中に**自分の
+  // ウェイクワードを鳴らして誤爆するか**を、音量を変えながら試す。
+  // これが確かめられないと「自己起動しない」と言い切れない。
+  app.post("/api/aec-test", async (c) => {
+    if (process.env.AICHAT_AEC_PROBE !== "1") return c.text("off", 404);
+    const { getLiveSession } = await import("./ws/index.ts");
+    const liveSession = getLiveSession();
+    if (!liveSession) return c.text("端末がつながっていません", 503);
+    const text = (await c.req.text()).trim() || "ずんだもん";
+    const wav = await synthesize(text, config, AbortSignal.timeout(30_000));
+    await liveSession.session.speakForTest(wav);
+    return c.json({ ok: true, text, bytes: wav.byteLength });
+  });
 
   // チャット履歴。**catch-all より前に置くこと。**
   app.get("/api/chats", handleListChats);

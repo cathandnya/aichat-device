@@ -168,6 +168,10 @@ class AudioPlayer(
             .build()
 
         try {
+            android.util.Log.i(
+                "aichat",
+                "鳴らします ${pcm.samples.size}B ${pcm.sampleRate}Hz ${pcm.channels}ch",
+            )
             playing = true
             // **参照は `write()` より先に積む。**
             //

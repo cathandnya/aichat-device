@@ -166,23 +166,31 @@ class EchoReference {
         // もう文末まで飛んでいる。そちらを使うと未来の音を消そうとする。
         val played = playedNow()
         val from = played - delaySamples - count
-        if (from < 0) {
-            note("from<0 played=$played written=$written")
-            return false
-        }
-        // まだ積んでいない先は読めない。
+
+        // ★ **鳴り始めも必ず消す。**
+        //
+        // ここで諦めていたのが致命傷だった。`from` が負なのは「まだ
+        // 鳴り始めたばかりで、遅延ぶん遡ると track の手前に出る」だけの
+        // こと。**その手前は無音**なので、参照は 0 を入れてやればよい。
+        //
+        // false を返していたときは、**最初の 200ms が丸ごと素通し**に
+        // なっていた。そこはエコーが一番大きく、しかもウェイクワードが
+        // 鳴る区間なので、実機では必ずそこで誤爆していた
+        // （実測『参照が引けない: from<0 played=0』のあと [wake] ★）。
         if (from + count > written) {
             note("未来 from=$from played=$played written=$written")
             return false
         }
         // 輪から溢れて上書きされていたら諦める。
-        if (written - from > ring.size) {
+        if (from >= 0 && written - from > ring.size) {
             note("溢れ from=$from written=$written")
             return false
         }
 
         for (i in 0 until count) {
-            into[i] = ring[((from + i) % ring.size).toInt()]
+            val at = from + i
+            // track が始まる前は無音。**0 を渡す**（諦めない）。
+            into[i] = if (at < 0) 0 else ring[(at % ring.size).toInt()]
         }
         return true
     }

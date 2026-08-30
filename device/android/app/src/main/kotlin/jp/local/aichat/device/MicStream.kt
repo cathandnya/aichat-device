@@ -55,8 +55,20 @@ class MicStream(
     private val reference: EchoReference? = null,
 ) {
 
-    /** エコー消去。**効かなければ自分で降りる**（`Aec.ready`）。 */
-    val aec: Aec? = if (Aec.ENABLED) Aec() else null
+    /**
+     * エコー消去。**効かなければ自分で降りる**（`Aec.ready`）。
+     *
+     * `enabled=false` なら作らない＝**消さない**。切り分けのとき、
+     * ゲートだけでなく消去そのものを止められるようにしてある。
+     */
+    var aec: Aec? = if (Aec.ENABLED) Aec() else null
+        private set
+
+    /** 消去そのものをやめる。**実行時の切り分け用。** */
+    fun disableCancellation() {
+        aec?.close()
+        aec = null
+    }
 
     /**
      * スピーカーから出てマイクに戻るまでの遅れ（サンプル数）。
