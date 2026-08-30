@@ -282,10 +282,7 @@ class MainActivity : Activity() {
                 view.emotion = event.emotion
                 view.invalidate()
             }
-            is Event.Audio -> {
-                Log.i(TAG, "音声を受け取りました: ${event.wav.size}バイト")
-                player.enqueue(event.wav, event.emotion)
-            }
+            is Event.Audio -> player.enqueue(event.wav, event.emotion)
             Event.SpeechEnd -> player.end()
             is Event.Failed -> Log.w(TAG, "サーバー: ${event.message}")
             Event.Closed -> {
