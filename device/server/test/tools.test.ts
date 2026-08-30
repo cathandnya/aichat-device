@@ -212,10 +212,46 @@ test("道具に渡していない経路（画面）は検索つきのまま", as
     // tools を渡さない
   );
 
-  const body = JSON.parse(fake.bodies[0] ?? "{}") as { tools: unknown[] };
+  const body = JSON.parse(fake.bodies[0] ?? "{}") as {
+    tools: unknown[];
+    toolConfig?: unknown;
+  };
   assert.ok(
     JSON.stringify(body.tools).includes("googleSearch"),
     "検索が外れている",
   );
+  // 自前の道具が無いなら toolConfig も要らない。
+  assert.equal(body.toolConfig, undefined);
+  await fake.close();
+});
+
+test("★ **道具を渡しても検索は残る**", async () => {
+  // 検索のほうが使う場面が多い。タイマーのために外すのは割に合わない。
+  //
+  // 素直に並べると 400 で「include_server_side_tool_invocations を
+  // 有効にしろ」と返る。それが toolConfig。**実機で確認済み**。
+  const fake = await startFakeGemini([[text("はい")]]);
+  const tools: ServerTools = {
+    declarations: [{ name: "set_timer" }],
+    execute: async () => ({ ok: true }),
+  };
+
+  await handleChat(
+    { messages: [{ role: "user", content: "こんにちは" }] },
+    AbortSignal.timeout(5_000),
+    runtimeWith(fake.url),
+    tools,
+  );
+
+  const body = JSON.parse(fake.bodies[0] ?? "{}") as {
+    tools: unknown[];
+    toolConfig?: { includeServerSideToolInvocations?: boolean };
+  };
+  const flat = JSON.stringify(body.tools);
+  assert.ok(flat.includes("googleSearch"), "検索が外れている");
+  assert.ok(flat.includes("urlContext"), "URL 読みが外れている");
+  assert.ok(flat.includes("functionDeclarations"), "道具が渡っていない");
+  // **これが無いと 400 になる。**
+  assert.equal(body.toolConfig?.includeServerSideToolInvocations, true);
   await fake.close();
 });

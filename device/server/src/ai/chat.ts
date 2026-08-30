@@ -746,13 +746,26 @@ async function callGemini(
     //
     // URL を含まない会話では何も起きないので、常時渡して構わない。
     //
-    // **道具を渡すときは検索を外す。** Gemini は functionDeclarations と
-    // googleSearch の同居を受け付けない世代がある（400 になる）。
-    // タイマーを頼まれる会話で検索が要ることはまず無いので、
-    // 道具があるときは道具を採る。
+    // **道具を渡しても検索は外さない。** 両方入る。
+    //
+    // 素直に並べると 400 で
+    // 「Please enable tool_config.include_server_side_tool_invocations to
+    //  use Built-in tools with Function calling」と返る。下の toolConfig が
+    // それで、**これを立てれば同居できる**（実機で確認：タイマーの依頼で
+    // functionCall が返り、天気の質問では groundingMetadata が付いた）。
+    //
+    // 検索のほうが使う場面が多いので、**タイマーのために外すのは割に合わない**。
     tools: tools
-      ? [{ functionDeclarations: tools.declarations }]
+      ? [
+          { googleSearch: {} },
+          { urlContext: {} },
+          { functionDeclarations: tools.declarations },
+        ]
       : [{ googleSearch: {} }, { urlContext: {} }],
+    // 組み込みの道具（検索）と自前の道具を混ぜるときに要る。
+    ...(tools
+      ? { toolConfig: { includeServerSideToolInvocations: true } }
+      : {}),
   };
 
   return fetch(url, {
