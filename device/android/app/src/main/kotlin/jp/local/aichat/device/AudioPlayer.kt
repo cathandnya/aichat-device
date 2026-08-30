@@ -119,7 +119,7 @@ class AudioPlayer(
             if (mine != generation) continue
             // **鳴らす直前に顔を変える。** 復号のあと、再生の直前。
             item.emotion?.let { onStart(it) }
-            play(pcm, mine)
+            play(pcm, mine, ::takeNextIfSame)
             // **キューが空なだけでは判断できない。** 文ごとに届くので、
             // 1 文目を鳴らし終えた時点で 2 文目がまだ来ていないことがある。
             // サーバーの「これで最後」と揃ってはじめて鳴り終わり。
@@ -127,7 +127,25 @@ class AudioPlayer(
         }
     }
 
-    private fun play(pcm: Pcm, mine: Int) {
+    /**
+     * 次のかたまりが**同じ形**なら取り出す。違う形・空なら null。
+     *
+     * 500ms ずつ刻んで届くので、同じ track に続けて書けば継ぎ目が消える。
+     * 形（レート・チャンネル数）が変わるのは文が変わるときだけ。
+     */
+    private fun takeNextIfSame(rate: Int, channels: Int): Pcm? {
+        val head = queue.peek() ?: return null
+        val pcm = Wav.decode(head.wav) ?: return null
+        if (pcm.sampleRate != rate || pcm.channels != channels) return null
+        queue.poll()
+        // 表情はかたまりの先頭にしか載らないので、ここでは見ない。
+        return pcm
+    }
+
+    /** 1 フレームのバイト数。16bit なので 2×チャンネル数。 */
+    private fun bytesPerFrameOf(pcm: Pcm): Int = 2 * maxOf(1, pcm.channels)
+
+    private fun play(pcm: Pcm, mine: Int, more: (Int, Int) -> Pcm?) {
         val channelMask =
             if (pcm.channels >= 2) AudioFormat.CHANNEL_OUT_STEREO
             else AudioFormat.CHANNEL_OUT_MONO
@@ -163,7 +181,13 @@ class AudioPlayer(
                     .setChannelMask(channelMask)
                     .build(),
             )
-            .setBufferSizeInBytes(maxOf(minimum, pcm.samples.size.coerceAtMost(minimum * 4)))
+            // **かたまりを跨いで書き続けるので、少し厚めに持つ。**
+            //
+            // `MODE_STREAM` の `write()` は空きが出るまで待つ。そこで
+            // 待つこと自体は正しい（それが再生の速度に合わせる仕組み）が、
+            // 薄いと網の揺れがそのまま途切れになる。500ms のかたまりを
+            // 2〜3 個ぶん抱えられるようにしておく。
+            .setBufferSizeInBytes(maxOf(minimum * 4, pcm.samples.size))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
 
@@ -181,11 +205,26 @@ class AudioPlayer(
             reference?.push(pcm)
             reference?.attach(track, pcm.sampleRate)
             track.play()
-            var offset = 0
-            while (offset < pcm.samples.size && mine == generation) {
-                val wrote = track.write(pcm.samples, offset, pcm.samples.size - offset)
-                if (wrote <= 0) break
-                offset += wrote
+            // ★ **同じ形のかたまりは、同じ track に続けて書く。**
+            //
+            // かたまりごとに track を作り直すと、その立ち上げと後片付けで
+            // **1 個につき 55ms の無音**が入る（実測。500ms のかたまりが
+            // 555ms かかっていた）。500ms 刻みなので、それが**途切れとして
+            // 聞こえる**。書き続ければ継ぎ目は消える。
+            var written = 0L
+            var current: Pcm? = pcm
+            while (current != null && mine == generation) {
+                val body = current.samples
+                var offset = 0
+                while (offset < body.size && mine == generation) {
+                    val wrote = track.write(body, offset, body.size - offset)
+                    if (wrote <= 0) break
+                    offset += wrote
+                }
+                written += body.size / bytesPerFrameOf(current)
+                // 参照（エコー消去）にも続きを積む。
+                if (current !== pcm) reference?.push(current)
+                current = if (mine == generation) more(pcm.sampleRate, pcm.channels) else null
             }
             // **鳴り終わるまで待つ。** 書き終えた時点ではまだ鳴っている。
             // ここで戻ると口パクが先に止まる。
@@ -205,8 +244,7 @@ class AudioPlayer(
                 // `TAIL_MS` と合わさって尻切れはしていなかったが、
                 // **AEC は再生位置で時間を合わせる**ので、ここが正確でないと
                 // 遅延推定が丸ごとずれる。
-                val bytesPerFrame = 2 * maxOf(1, pcm.channels)
-                val total = pcm.samples.size / bytesPerFrame
+                val total = written
                 var stalled = 0
                 while (mine == generation && track.playbackHeadPosition < total) {
                     val before = track.playbackHeadPosition

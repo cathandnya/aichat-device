@@ -102,6 +102,16 @@ const MAX_SPEAKING_WAIT_MS = 60_000;
  */
 const SPOKEN_GRACE_MS = 1_500;
 
+/**
+ * 端末が WAV の長さの何倍かけて鳴らすか。**保険の見積りだけに使う。**
+ *
+ * 鳴らす仕組みそのものは端末側で継ぎ目なく直したが、合成の速度や
+ * 機種で多少はずれる。**見積りが足りないと保険が先に切れて、
+ * 端末の合図が捨てられる**（実測でそうなっていた）ので、少し多めに
+ * 見ておく。合図が来ればそちらが先に開くので、多い側の害は無い。
+ */
+const PLAYBACK_SLACK = 1.1;
+
 export interface SessionIO {
   send(message: ServerMessage): void;
   sendAudio(audio: Buffer): Promise<void>;
@@ -591,7 +601,7 @@ export class Session {
   private async sendAudio(audio: Buffer): Promise<void> {
     const now = Date.now();
     this.speakingUntil =
-      Math.max(now, this.speakingUntil) + wavDurationMs(audio);
+      Math.max(now, this.speakingUntil) + wavDurationMs(audio) * PLAYBACK_SLACK;
     // 新しい音を送ったので、前の「鳴り終わった」は無効。
     this.spoken = false;
     await this.io.sendAudio(audio);
