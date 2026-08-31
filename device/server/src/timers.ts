@@ -109,7 +109,15 @@ export function setTimer(
     if (listener) listener(timer);
     else pending.set(deviceId, timer);
   }, safe * 1000);
-  // タイマー1本のためにプロセスを生かし続けない。
+  // **プロセスを生かし続けない。**
+  //
+  // サーバーは WebSocket で生き続けるので、タイマー1本のために
+  // イベントループを掴む必要はない。
+  //
+  // ただし `unref` すると**それ以外に生きたハンドルが無いとき、
+  // 発火を待たずにプロセスが終わる**。テストではそれで足を掬われる
+  // （node のランナーが先に終わり、テストが cancelled になる）ので、
+  // テスト側は実時間を待たずに済むよう `fire()` を使う。
   handle.unref?.();
 
   timers.set(deviceId, { timer, handle });
@@ -144,6 +152,23 @@ export function onRing(deviceId: string, fn: (timer: Timer) => void): void {
     pending.delete(deviceId);
     fn(held);
   }
+}
+
+/**
+ * 試験用。**時間を待たずに、いま鳴らす。**
+ *
+ * 実時間を待つテストは遅いうえ、`unref` の都合でランナーが先に
+ * 終わることがある。時計に依存せず筋道だけを確かめるための口。
+ */
+export function fire(deviceId: string): boolean {
+  const entry = timers.get(deviceId);
+  if (!entry) return false;
+  clearTimeout(entry.handle);
+  timers.delete(deviceId);
+  const listener = listeners.get(deviceId);
+  if (listener) listener(entry.timer);
+  else pending.set(deviceId, entry.timer);
+  return true;
 }
 
 /** 試験用。**本番では呼ばない。** */

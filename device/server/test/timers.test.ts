@@ -1,8 +1,12 @@
 /**
  * タイマー。**1台1本という約束が守られるか**を主に見る。
  *
- * **下限が 1 秒**（`MIN_SEC`）なので、鳴るのを見るテストはそのぶん待つ。
- * 待ちの出どころは `RING_SEC` / `RING_WAIT_MS` の 2 つだけにしてある。
+ * **実時間を待たない。** 鳴らすのは `fire()` で起こす。
+ *
+ * 時計を待つと遅いうえ、`setTimer` が `unref` しているので
+ * **他に生きたハンドルが無いとランナーが先に終わる**（テストが
+ * cancelled になる）。時計そのものは `remainingSec` の計算で
+ * `now` を渡して確かめられるので、待つ必要がない。
  */
 
 import assert from "node:assert/strict";
@@ -10,6 +14,7 @@ import { test } from "node:test";
 
 import {
   cancelTimer,
+  fire,
   getTimer,
   onRing,
   resetAll,
@@ -17,27 +22,20 @@ import {
   type Timer,
 } from "../src/timers.ts";
 
-/** 鳴るまで待つ。**固定の sleep で待たない**（遅い機械で落ちる）。 */
-function waitRing(deviceId: string): Promise<Timer> {
-  return new Promise((resolve) => onRing(deviceId, resolve));
+/** 鳴ったものを受け取る箱。 */
+function catcher(deviceId: string): { got: Timer[] } {
+  const got: Timer[] = [];
+  onRing(deviceId, (t) => got.push(t));
+  return { got };
 }
 
-/**
- * 鳴るのを待つテストの長さ。
- *
- * **下限が 1 秒なので、それより短くできない。** 0.02 を渡しても
- * `MIN_SEC` に切り上がるだけで、テストは 1 秒待つことになる
- * （実際そうなっていた）。ここに置いて、待ち時間の出どころを1箇所にする。
- */
-const RING_SEC = 1;
-const RING_WAIT_MS = 1400;
-
-test("時間が来たら鳴る", async () => {
+test("時間が来たら鳴る", () => {
   resetAll();
-  const rang = waitRing("dev-1");
-  setTimer("dev-1", RING_SEC);
-  const timer = await rang;
-  assert.equal(timer.deviceId, "dev-1");
+  const box = catcher("dev-1");
+  setTimer("dev-1", 60);
+  assert.equal(fire("dev-1"), true);
+  assert.equal(box.got.length, 1);
+  assert.equal(box.got[0]?.deviceId, "dev-1");
 });
 
 test("**動いている間は新しくかけない**", () => {
@@ -63,18 +61,15 @@ test("端末ごとに別々に持てる", () => {
   assert.equal(setTimer("dev-b", 60).ok, true);
 });
 
-test("やめれば鳴らない", async () => {
+test("やめれば鳴らない", () => {
   resetAll();
-  let rang = false;
-  onRing("dev-3", () => {
-    rang = true;
-  });
-  setTimer("dev-3", RING_SEC);
+  const box = catcher("dev-3");
+  setTimer("dev-3", 60);
   assert.ok(cancelTimer("dev-3"));
   assert.equal(getTimer("dev-3"), null);
-
-  await new Promise((r) => setTimeout(r, RING_WAIT_MS));
-  assert.equal(rang, false);
+  // やめたあとは起こすものが無い。
+  assert.equal(fire("dev-3"), false);
+  assert.equal(box.got.length, 0);
 });
 
 test("動いていなければやめられない", () => {
@@ -89,11 +84,11 @@ test("やめたあとはまたかけられる", () => {
   assert.equal(setTimer("dev-5", 30).ok, true);
 });
 
-test("鳴ったあとはまたかけられる", async () => {
+test("鳴ったあとはまたかけられる", () => {
   resetAll();
-  const rang = waitRing("dev-6");
-  setTimer("dev-6", RING_SEC);
-  await rang;
+  catcher("dev-6");
+  setTimer("dev-6", 60);
+  fire("dev-6");
   // 鳴り終わったら手放している。
   assert.equal(getTimer("dev-6"), null);
   assert.equal(setTimer("dev-6", 60).ok, true);
@@ -138,27 +133,29 @@ test("**壊れた長さでも落ちない**", () => {
   assert.equal(fraction.ok && fraction.timer.durationSec, 91);
 });
 
-test("**切断中に鳴っても捨てない**", async () => {
+test("**切断中に鳴っても捨てない**", () => {
   // 受け口が居ないまま時間が来ることがある（端末の再起動、WiFi の瞬断）。
   // 捨てると「かけたのに何も言われない」になる。
   resetAll();
-  setTimer("dev-10", RING_SEC);
-  await new Promise((r) => setTimeout(r, RING_WAIT_MS));
+  setTimer("dev-10", 60);
+  fire("dev-10"); // 受け口が無いまま鳴った
 
   // 繋ぎ直して初めて受け口が付く。溜まっていたぶんがここで流れる。
-  const timer = await new Promise<Timer>((resolve) => onRing("dev-10", resolve));
-  assert.equal(timer.deviceId, "dev-10");
+  const box = catcher("dev-10");
+  assert.equal(box.got.length, 1);
+  assert.equal(box.got[0]?.deviceId, "dev-10");
 });
 
-test("受け口は付け替えられる", async () => {
+test("受け口は付け替えられる", () => {
   resetAll();
   let old = false;
   onRing("dev-11", () => {
     old = true;
   });
   // 繋ぎ直すと新しい Session が登録し直す。古いほうには行かない。
-  const fresh = waitRing("dev-11");
-  setTimer("dev-11", RING_SEC);
-  await fresh;
+  const box = catcher("dev-11");
+  setTimer("dev-11", 60);
+  fire("dev-11");
   assert.equal(old, false);
+  assert.equal(box.got.length, 1);
 });
