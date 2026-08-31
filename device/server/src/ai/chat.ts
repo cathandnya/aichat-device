@@ -576,7 +576,11 @@ async function geminiWithTools(
     // 呼ばれたぶんを実行して、結果を会話に足してもう一周。
     contents.push({
       role: "model",
-      parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args } })),
+      // **署名も一緒に返す。** 落とすと次の往復が 400 になる。
+      parts: calls.map((c) => ({
+        functionCall: { name: c.name, args: c.args },
+        ...(c.thoughtSignature ? { thoughtSignature: c.thoughtSignature } : {}),
+      })),
     });
 
     const responses = [];
@@ -603,6 +607,15 @@ async function geminiWithTools(
 interface ToolCall {
   name: string;
   args: Record<string, unknown>;
+  /**
+   * 思考の署名。**そのまま返さないと 400 になる。**
+   *
+   * Gemini 3 系は道具を呼ぶとき `functionCall` にこれを付けてくる。
+   * 次の往復でそのまま送り返す決まりで、落とすと
+   * 「Function call is missing a thought_signature」で拒まれる
+   * （実機で実際に出た）。**中身は読まない。預かって返すだけ。**
+   */
+  thoughtSignature?: string;
 }
 
 /**
@@ -636,13 +649,22 @@ async function readGeminiStream(
           content?: {
             parts?: Array<{
               functionCall?: { name?: string; args?: Record<string, unknown> };
+              thoughtSignature?: string;
             }>;
           };
         }>;
       };
       for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
         const call = part.functionCall;
-        if (call?.name) calls.push({ name: call.name, args: call.args ?? {} });
+        if (call?.name) {
+          calls.push({
+            name: call.name,
+            args: call.args ?? {},
+            ...(part.thoughtSignature
+              ? { thoughtSignature: part.thoughtSignature }
+              : {}),
+          });
+        }
       }
     }
     if (done) break;

@@ -70,9 +70,20 @@ function runtimeWith(url: string) {
 const text = (t: string) =>
   JSON.stringify({ candidates: [{ content: { parts: [{ text: t }] } }] });
 
-const call = (name: string, args: unknown) =>
+const call = (name: string, args: unknown, signature?: string) =>
   JSON.stringify({
-    candidates: [{ content: { parts: [{ functionCall: { name, args } }] } }],
+    candidates: [
+      {
+        content: {
+          parts: [
+            {
+              functionCall: { name, args },
+              ...(signature ? { thoughtSignature: signature } : {}),
+            },
+          ],
+        },
+      },
+    ],
   });
 
 async function readText(response: Response): Promise<string> {
@@ -253,5 +264,35 @@ test("★ **道具を渡しても検索は残る**", async () => {
   assert.ok(flat.includes("functionDeclarations"), "道具が渡っていない");
   // **これが無いと 400 になる。**
   assert.equal(body.toolConfig?.includeServerSideToolInvocations, true);
+  await fake.close();
+});
+
+test("★ **思考の署名をそのまま返す**", async () => {
+  // Gemini 3 系は functionCall に thoughtSignature を付けてくる。
+  // 落とすと次の往復が 400 で拒まれる:
+  //   「Function call is missing a thought_signature in functionCall parts」
+  // 実機で実際に出た。中身は読まない——預かって返すだけ。
+  const fake = await startFakeGemini([
+    [call("set_timer", { seconds: 30 }, "sig-abc123")],
+    [text("30秒のタイマーをかけたのだ！")],
+  ]);
+
+  const tools: ServerTools = {
+    declarations: [{ name: "set_timer" }],
+    execute: async () => ({ ok: true }),
+  };
+
+  await handleChat(
+    { messages: [{ role: "user", content: "30秒のタイマー" }] },
+    AbortSignal.timeout(5_000),
+    runtimeWith(fake.url),
+    tools,
+  );
+
+  assert.equal(fake.bodies.length, 2);
+  assert.ok(
+    (fake.bodies[1] ?? "").includes("sig-abc123"),
+    "署名が返っていない（400 になる）",
+  );
   await fake.close();
 });
