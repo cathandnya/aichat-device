@@ -19,6 +19,7 @@ import java.util.concurrent.LinkedBlockingQueue
 /** 鳴り終わったあと、マイクを伏せておく長さ。 */
 private const val TAIL_MS = 350L
 
+
 class AudioPlayer(
     /**
      * その音を鳴らし始める直前に呼ぶ。**表情の切り替えはここ。**
@@ -54,6 +55,13 @@ class AudioPlayer(
     @Volatile private var generation = 0
     /** サーバーが「これで最後」と言ったか。 */
     @Volatile private var ended = false
+
+    /** 開いている鳴らし口。**形が同じなら使い回す。** */
+    private var track: AudioTrack? = null
+    private var trackRate = 0
+    private var trackChannels = 0
+    /** いまの口に書いた合計フレーム数。鳴り終わりの判定に使う。 */
+    private var writtenFrames = 0L
 
     /** いま実際に音が出ているか。**口パクの根拠。** */
     @Volatile var playing: Boolean = false
@@ -109,6 +117,13 @@ class AudioPlayer(
         generation += 1
         queue.clear()
         ended = false
+        // **口も閉じる。** 開いたままだと、ハードのバッファに残っている
+        // ぶんが鳴り続ける（割り込みで止めたのに喋り続ける）。
+        // 次に鳴らすときに開き直す。
+        //
+        // `pump` の側から呼ばれることもあるが、`closeTrack` は null で
+        // 何もしないので二重に閉じても安全。
+        closeTrack()
     }
 
     private fun pump() {
@@ -119,7 +134,7 @@ class AudioPlayer(
             if (mine != generation) continue
             // **鳴らす直前に顔を変える。** 復号のあと、再生の直前。
             item.emotion?.let { onStart(it) }
-            play(pcm, mine, ::takeNextIfSame)
+            play(pcm, mine)
             // **キューが空なだけでは判断できない。** 文ごとに届くので、
             // 1 文目を鳴らし終えた時点で 2 文目がまだ来ていないことがある。
             // サーバーの「これで最後」と揃ってはじめて鳴り終わり。
@@ -127,37 +142,38 @@ class AudioPlayer(
         }
     }
 
-    /**
-     * 次のかたまりが**同じ形**なら取り出す。違う形・空なら null。
-     *
-     * 500ms ずつ刻んで届くので、同じ track に続けて書けば継ぎ目が消える。
-     * 形（レート・チャンネル数）が変わるのは文が変わるときだけ。
-     */
-    private fun takeNextIfSame(rate: Int, channels: Int): Pcm? {
-        val head = queue.peek() ?: return null
-        val pcm = Wav.decode(head.wav) ?: return null
-        if (pcm.sampleRate != rate || pcm.channels != channels) return null
-        queue.poll()
-        // 表情はかたまりの先頭にしか載らないので、ここでは見ない。
-        return pcm
-    }
-
     /** 1 フレームのバイト数。16bit なので 2×チャンネル数。 */
     private fun bytesPerFrameOf(pcm: Pcm): Int = 2 * maxOf(1, pcm.channels)
 
-    private fun play(pcm: Pcm, mine: Int, more: (Int, Int) -> Pcm?) {
+    /**
+     * 鳴らす口を用意する。**同じ形なら開いたまま使い回す。**
+     *
+     * かたまりごとに作り直すと、その立ち上げと後片付けで **1 個につき
+     * 55ms の無音**が入る（実測。500ms のかたまりが 555ms かかっていた）。
+     * 500ms 刻みで送っているので、それが途切れとして聞こえる。
+     *
+     * 形（レート・チャンネル数）が変わったときだけ作り直す。VOICEVOX は
+     * 常に同じ形で返すので、実際にはほぼ起きない。
+     */
+    private fun trackFor(pcm: Pcm): AudioTrack? {
         val channelMask =
             if (pcm.channels >= 2) AudioFormat.CHANNEL_OUT_STEREO
             else AudioFormat.CHANNEL_OUT_MONO
+
+        val open = track
+        if (open != null && trackRate == pcm.sampleRate && trackChannels == pcm.channels) {
+            return open
+        }
+        closeTrack()
 
         val minimum = AudioTrack.getMinBufferSize(
             pcm.sampleRate,
             channelMask,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-        if (minimum <= 0) return
+        if (minimum <= 0) return null
 
-        val track = AudioTrack.Builder()
+        val fresh = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     // **MEDIA にする。**
@@ -181,15 +197,48 @@ class AudioPlayer(
                     .setChannelMask(channelMask)
                     .build(),
             )
-            // **かたまりを跨いで書き続けるので、少し厚めに持つ。**
-            //
-            // `MODE_STREAM` の `write()` は空きが出るまで待つ。そこで
-            // 待つこと自体は正しい（それが再生の速度に合わせる仕組み）が、
-            // 薄いと網の揺れがそのまま途切れになる。500ms のかたまりを
-            // 2〜3 個ぶん抱えられるようにしておく。
+            // **厚めに持つ。** `MODE_STREAM` の `write()` は空きが出るまで
+            // 待つ。待つこと自体は正しい（再生の速度に合わせる仕組み）が、
+            // 薄いと網の揺れがそのまま途切れになる。
             .setBufferSizeInBytes(maxOf(minimum * 4, pcm.samples.size))
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
+
+        track = fresh
+        trackRate = pcm.sampleRate
+        trackChannels = pcm.channels
+        writtenFrames = 0L
+        reference?.attach(fresh, pcm.sampleRate)
+        fresh.play()
+        return fresh
+    }
+
+    /** 開いている口を閉じる。**参照の控えも一緒に片づける。** */
+    private fun closeTrack() {
+        val open = track ?: return
+        val played = try {
+            open.playbackHeadPosition
+        } catch (_: Exception) {
+            0
+        }
+        reference?.endTrack(played)
+        reference?.detach()
+        try {
+            open.stop()
+        } catch (_: Exception) {
+            // すでに止まっていることがある。
+        }
+        try {
+            open.release()
+        } catch (_: Exception) {
+            // すでに解放されていることがある。
+        }
+        track = null
+        writtenFrames = 0L
+    }
+
+    private fun play(pcm: Pcm, mine: Int) {
+        val open = trackFor(pcm) ?: return
 
         try {
             playing = true
@@ -198,85 +247,48 @@ class AudioPlayer(
             // `write()` はバッファが空くまでブロックする（数百 ms あり得る）。
             // 後に積むと、その間マイク側が参照を引けず、消さないまま
             // 素通しになる。**鳴り始めが一番消したい所**なので順序が要る。
-            //
-            // **積んでから track を渡す。** マイク側は `progress()` ではなく
-            // この track から直に再生位置を読む（下記）。
-            reference?.beginTrack()
             reference?.push(pcm)
-            reference?.attach(track, pcm.sampleRate)
-            track.play()
-            // ★ **同じ形のかたまりは、同じ track に続けて書く。**
-            //
-            // かたまりごとに track を作り直すと、その立ち上げと後片付けで
-            // **1 個につき 55ms の無音**が入る（実測。500ms のかたまりが
-            // 555ms かかっていた）。500ms 刻みなので、それが**途切れとして
-            // 聞こえる**。書き続ければ継ぎ目は消える。
-            var written = 0L
-            var current: Pcm? = pcm
-            while (current != null && mine == generation) {
-                val body = current.samples
-                var offset = 0
-                while (offset < body.size && mine == generation) {
-                    val wrote = track.write(body, offset, body.size - offset)
-                    if (wrote <= 0) break
-                    offset += wrote
-                }
-                written += body.size / bytesPerFrameOf(current)
-                // 参照（エコー消去）にも続きを積む。
-                if (current !== pcm) reference?.push(current)
-                current = if (mine == generation) more(pcm.sampleRate, pcm.channels) else null
+
+            val body = pcm.samples
+            var offset = 0
+            while (offset < body.size && mine == generation) {
+                val wrote = open.write(body, offset, body.size - offset)
+                if (wrote <= 0) break
+                offset += wrote
             }
+            writtenFrames += body.size / bytesPerFrameOf(pcm)
+
+            // **次が控えているなら、鳴り終わりを待たない。**
+            //
+            // 待つと、そのぶん次のかたまりを書き始めるのが遅れる。
+            // 口は開いたままなので、続けて書けば音は繋がる。
+            if (!queue.isEmpty()) return
+
             // **鳴り終わるまで待つ。** 書き終えた時点ではまだ鳴っている。
             // ここで戻ると口パクが先に止まる。
             //
-            // **`stop()` してから `playState` を見てはいけない。** `stop()` の
-            // 直後に状態は STOPPED になるので、待ちが素通りして `release()` が
-            // 未再生ぶんを捨ててしまう（**読み上げの最後が切れる**）。
-            // MODE_STREAM では再生位置が書いた長さに追いつくまで数える。
+            // `playbackHeadPosition` は track を開いてからの通算なので、
+            // 書いた合計（`writtenFrames`）と直に比べられる。
             if (mine == generation) {
-                // **フレーム数で数える。** playbackHeadPosition はサンプル数
-                // ではなくフレーム数を返すので、ステレオでは半分になる。
-                //
-                // **`samples` はバイト列。** 16bit なので 1 サンプル 2 バイト、
-                // 1 フレームは 2×チャンネル数バイト。ここを割り忘れると
-                // フレーム数が 2 倍過大になり、**再生位置が永遠に届かず**
-                // 下の `stalled` 側（約 500ms）で抜けることになる。
-                // `TAIL_MS` と合わさって尻切れはしていなかったが、
-                // **AEC は再生位置で時間を合わせる**ので、ここが正確でないと
-                // 遅延推定が丸ごとずれる。
-                val total = written
                 var stalled = 0
-                while (mine == generation && track.playbackHeadPosition < total) {
-                    val before = track.playbackHeadPosition
+                while (mine == generation && open.playbackHeadPosition < writtenFrames) {
+                    val before = open.playbackHeadPosition
                     Thread.sleep(20)
                     // 進まなくなったら諦める。**永久に待たない。**
-                    if (track.playbackHeadPosition == before) {
+                    if (open.playbackHeadPosition == before) {
                         stalled += 1
                         if (stalled > 25) break
                     } else {
                         stalled = 0
                     }
+                    // 待っている間に次が届いたら、そちらを優先する。
+                    if (!queue.isEmpty()) return
                 }
-                track.stop()
             }
         } catch (_: Exception) {
             // 鳴らなくても止まらない。次の文へ進む。
         } finally {
-            // **実際に鳴った長さを控えてから解放する。**
-            //
-            // `release()` の後では読めない。途中でやめたとき（`cancel`）は
-            // 積んだぶんより短くなるので、その差を参照から捨てる必要がある。
-            // 捨てないと、鳴っていない音を「鳴った」ことにして引くので
-            // フィルタが壊れる。**やめる操作は実装済みなので必ず起きる。**
-            val played = try {
-                track.playbackHeadPosition
-            } catch (_: Exception) {
-                0
-            }
-            reference?.endTrack(played)
-            reference?.detach()
-
-            // **鳴り終わってからも少し伏せておく。**
+            // **本当に鳴り終わったときだけ伏せる。**
             //
             // `playbackHeadPosition` は「デバイスに渡した位置」で、
             // スピーカーから実際に音が出るまでにはハードのバッファぶん
@@ -285,23 +297,17 @@ class AudioPlayer(
             //
             // エコー消去が効くようになれば要らなくなるが、**効かなかった
             // ときの退路**でもあるので残す。
-            //
-            // ★ **次が控えているなら伏せない。** サーバーは 1 文を
-            // 500ms ずつに刻んで送るので、かたまりごとに 350ms 待つと
-            // **文の途中に沈黙が入る**（3 秒の文で 2 秒ぶん）。
-            // 伏せたいのは「本当に鳴り終わったあと」だけ。
             if (queue.isEmpty()) {
                 try {
                     Thread.sleep(TAIL_MS)
                 } catch (_: InterruptedException) {
                     Thread.currentThread().interrupt()
                 }
-            }
-            playing = false
-            try {
-                track.release()
-            } catch (_: Exception) {
-                // すでに解放されていることがある。
+                playing = false
+                // **鳴り終わったら閉じる。** 開いたままだと、次の文まで
+                // 参照の位置が繋がってしまい、エコー消去の時間合わせが
+                // 合わなくなる。
+                if (queue.isEmpty()) closeTrack()
             }
         }
     }
