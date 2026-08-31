@@ -356,8 +356,12 @@ export class Session {
         if (this.state === "speaking") {
           console.log("[wake] 読み上げ中に呼ばれたので止めます");
           // `startChat` が `closeChat` → `speech.cancel()` で合成を止め、
-          // 端末は `wake` を受けて鳴っているぶんを捨てる。
-          this.startChat();
+          // 端末は `wake` を受けて鳴っているぶんを捨てて効果音を鳴らす。
+          //
+          // **遡らない。** 輪には止めたばかりの読み上げと呼びかけが
+          // 入っているので、遡ると**それが質問になる**。呼ばれたら
+          // 最初からやり直す、が割り込みの意味。
+          this.startChat(true);
         }
       })
       // **握り潰さない。** ここが無いと `startChat` の例外が
@@ -422,7 +426,14 @@ export class Session {
    *
    * 規定時間を過ぎていたら新しい会話として始める。
    */
-  private startChat(): void {
+  /**
+   * 会話を始める。`fresh` なら**輪から遡らない**。
+   *
+   * 割り込み（読み上げ中に呼ばれた）で使う。輪には自分の読み上げの尻尾と
+   * 呼びかけそのものが入っているので、遡ると**それが質問になる**
+   * （実機で、割り込んだ直後に同じ答えを繰り返した）。
+   */
+  private startChat(fresh = false): void {
     this.closeChat("timeout");
 
     const saved = readConfig();
@@ -438,13 +449,16 @@ export class Session {
     // 返事もせず窓も開かないまま待機に戻ってしまう。
     this.acknowledged = false;
     // 起こした直後の 1 回は、同じ発話を聞き直すことになる。
+    // （`fresh`＝割り込みのときは遡らないので聞き直さないが、
+    //   立てておいても害はない。次の発話で必ず倒れる）
     this.justWoke = true;
     // **気づいたことを先に返す。** 聞き取りが始まるまで無反応だと、
     // 呼んだ人はもう一度呼んでしまう。
     this.io.send({ type: "wake" });
     this.io.send({ type: "chat", chatId: chat.id, title: chat.title });
 
-    this.beginListening();
+    // 割り込みのときは遡らない。**呼びかけの続きだけを聞く。**
+    this.beginListening(fresh ? 0 : WAKE_WINDOW_SEC);
   }
 
   /** 追い質問。同じチャットのまま聞き取りに入る。 */
@@ -1181,12 +1195,27 @@ function concat(chunks: Int16Array[]): Int16Array {
  */
 export function stripWake(text: string, patterns: readonly string[]): string {
   let result = text.trim();
-  for (const pattern of patterns) {
-    const at = result.indexOf(pattern);
-    if (at >= 0 && at < 8) {
-      result = result.slice(at + pattern.length);
-      break;
+
+  // ★ **続けて呼ばれたぶんは全部落とす。**
+  //
+  // 元は 1 個だけ落としていた。読み上げ中に割り込むときは強めに
+  // 「ずんだもんずんだもん」と重ねて呼ぶので、**残った方が質問として
+  // AI に渡っていた**（実機で、割り込んだあと同じ答えを繰り返した）。
+  //
+  // 落とすのは頭に続く範囲だけ。文の後ろに出てくる同じ語（「それって
+  // ずんだもんの話？」）は残す。
+  for (let round = 0; round < patterns.length + 4; round += 1) {
+    let hit = false;
+    for (const pattern of patterns) {
+      const at = result.indexOf(pattern);
+      if (at >= 0 && at < 8) {
+        result = result.slice(at + pattern.length);
+        result = result.replace(/^[\s、。！？!?・]+/, "");
+        hit = true;
+        break;
+      }
     }
+    if (!hit) break;
   }
   return result.replace(/^[\s、。！？!?・]+/, "").trim();
 }

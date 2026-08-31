@@ -40,3 +40,6 @@ echo
 
 # 実機を追うときの出力先。追跡しない。
 device/server/server.log
+
+# NDK のビルド生成物。**中身は成果物なので追わない。**
+device/android/app/.cxx/
