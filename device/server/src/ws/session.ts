@@ -34,6 +34,7 @@ import {
   type TimerView,
 } from "../timers.ts";
 import { transcribe } from "../ai/stt.ts";
+import { readPower } from "../house/power.ts";
 import {
   WAKE_HOP_SEC,
   WAKE_WINDOW_SEC,
@@ -948,10 +949,14 @@ export class Session {
    * 「はい？」と言い続ける機械になってしまうため。
    */
   /**
-   * AI に持たせる道具。**タイマーだけ。**
+   * AI に持たせる道具。
    *
    * 端末の会話からしか呼べない（`/api/chat` には渡していない）。
    * 誰が呼んだか分からない HTTP からタイマーを掛けさせない。
+   *
+   * 家の情報（いまは消費電力）は**設定されているときだけ**渡す。
+   * URL が空のまま宣言すると、AI が呼んでは失敗する道具が増え、
+   * 「調べます」と言ってから黙る挙動になる。
    */
   private tools(): ServerTools {
     return {
@@ -1004,6 +1009,17 @@ export class Session {
           description: "いまの音量を調べる。",
           parameters: { type: "object", properties: {} },
         },
+        ...(this.config.housePowerUrl
+          ? [
+              {
+                name: "get_house_power",
+                description:
+                  "この家がいま使っている電気の量（消費電力）をワットで調べる。" +
+                  "スマートメーターの実測値。",
+                parameters: { type: "object", properties: {} },
+              },
+            ]
+          : []),
       ],
       execute: async (name: string, args: Record<string, unknown>) => {
         switch (name) {
@@ -1047,6 +1063,13 @@ export class Session {
             return this.volume === null
               ? { known: false }
               : { known: true, percent: Math.round(this.volume * 100) };
+          }
+          case "get_house_power": {
+            const watt = await readPower(this.config.housePowerUrl);
+            // **繋がらないことは隠さない。** 古い値を言うより「分かりません」。
+            return watt === null
+              ? { ok: false, reason: "電力計に繋がりません" }
+              : { ok: true, watt };
           }
           default:
             return { error: `知らない道具です: ${name}` };

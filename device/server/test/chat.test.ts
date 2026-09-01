@@ -56,6 +56,7 @@ function configFor(upstreamUrl: string): Config {
     anthropicBaseUrl: upstreamUrl,
     geminiBaseUrl: upstreamUrl,
     voicevoxUrl: "",
+    housePowerUrl: "",
     voicevoxSpeaker: 3,
     stubSaveAudio: false,
     stubTranscript: "",

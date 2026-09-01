@@ -46,6 +46,7 @@ function configFor(url: string): Config {
     geminiBaseUrl: url,
     anthropicBaseUrl: url,
     voicevoxUrl: "",
+    housePowerUrl: "",
     voicevoxSpeaker: 3,
     stubSaveAudio: false,
     stubTranscript: "",

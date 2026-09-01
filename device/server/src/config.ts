@@ -43,6 +43,11 @@ export interface Config {
   geminiBaseUrl?: string;
   voicevoxUrl: string;
   voicevoxSpeaker: number;
+  /**
+   * 家の消費電力を測っているサーバー（house_power）の URL。
+   * 空なら電力について聞かれても答えられない（道具を持たせない）。
+   */
+  housePowerUrl: string;
   stubSaveAudio: boolean;
   stubTranscript: string;
 }
@@ -157,6 +162,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     whisperUrl: (env.WHISPER_URL ?? "").replace(/\/+$/, ""),
     appleSpeechUrl: (env.APPLE_SPEECH_URL ?? "").replace(/\/+$/, ""),
     voicevoxUrl: (env.VOICEVOX_URL ?? "").replace(/\/+$/, ""),
+    housePowerUrl: (env.HOUSE_POWER_URL ?? "").replace(/\/+$/, ""),
     voicevoxSpeaker,
     stubSaveAudio: env.STUB_SAVE_AUDIO === "1",
     stubTranscript: env.STUB_TRANSCRIPT ?? "明日の天気を教えて",
