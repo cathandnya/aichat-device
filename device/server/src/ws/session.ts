@@ -36,6 +36,7 @@ import {
 import { transcribe } from "../ai/stt.ts";
 import { readPower } from "../house/power.ts";
 import { readWater } from "../house/water.ts";
+import { pressPcPower, readPcPower } from "../house/pc.ts";
 import {
   WAKE_HOP_SEC,
   WAKE_WINDOW_SEC,
@@ -1032,6 +1033,34 @@ export class Session {
               },
             ]
           : []),
+        ...(this.config.pcPowerUrl
+          ? [
+              {
+                name: "get_pc_power",
+                description: "PC の電源が入っているかを調べる。",
+                parameters: { type: "object", properties: {} },
+              },
+              {
+                name: "set_pc_power",
+                description:
+                  "PC の電源を入れる、または切る。" +
+                  "切るときは電源ボタンを短く押すだけなので、OS が通常どおり終了する。" +
+                  "強制的に電源を落とすことはできない。" +
+                  "すでに頼まれた状態なら何もしない。",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    want: {
+                      type: "string",
+                      enum: ["on", "off"],
+                      description: "入れるなら on、切るなら off",
+                    },
+                  },
+                  required: ["want"],
+                },
+              },
+            ]
+          : []),
       ],
       execute: async (name: string, args: Record<string, unknown>) => {
         switch (name) {
@@ -1088,6 +1117,20 @@ export class Session {
             return water === null
               ? { ok: false, reason: "水位センサーに繋がりません" }
               : { ok: true, water };
+          }
+          case "get_pc_power": {
+            const on = await readPcPower(this.config.pcPowerUrl);
+            return on === null
+              ? { ok: false, reason: "電源の装置に繋がりません" }
+              : { ok: true, on };
+          }
+          case "set_pc_power": {
+            // **知らない値では押さない。** 向きが分からないまま押すと、
+            // 点けるつもりで消すことになる。
+            if (args.want !== "on" && args.want !== "off") {
+              return { ok: false, reason: "入れるのか切るのか分かりません" };
+            }
+            return await pressPcPower(this.config.pcPowerUrl, args.want);
           }
           default:
             return { error: `知らない道具です: ${name}` };

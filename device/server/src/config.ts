@@ -53,6 +53,11 @@ export interface Config {
    * 空なら水について聞かれても答えられない（道具を持たせない）。
    */
   waterLevelUrl: string;
+  /**
+   * PC の電源を操る装置（pc_power）の URL。
+   * 空なら PC の電源について聞かれても答えられない（道具を持たせない）。
+   */
+  pcPowerUrl: string;
   stubSaveAudio: boolean;
   stubTranscript: string;
 }
@@ -169,6 +174,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     voicevoxUrl: (env.VOICEVOX_URL ?? "").replace(/\/+$/, ""),
     housePowerUrl: (env.HOUSE_POWER_URL ?? "").replace(/\/+$/, ""),
     waterLevelUrl: (env.WATER_LEVEL_URL ?? "").replace(/\/+$/, ""),
+    pcPowerUrl: (env.PC_POWER_URL ?? "").replace(/\/+$/, ""),
     voicevoxSpeaker,
     stubSaveAudio: env.STUB_SAVE_AUDIO === "1",
     stubTranscript: env.STUB_TRANSCRIPT ?? "明日の天気を教えて",

@@ -48,6 +48,7 @@ function configFor(url: string): Config {
     voicevoxUrl: "",
     housePowerUrl: "",
     waterLevelUrl: "",
+    pcPowerUrl: "",
     voicevoxSpeaker: 3,
     stubSaveAudio: false,
     stubTranscript: "",
