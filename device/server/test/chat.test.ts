@@ -57,6 +57,7 @@ function configFor(upstreamUrl: string): Config {
     geminiBaseUrl: upstreamUrl,
     voicevoxUrl: "",
     housePowerUrl: "",
+    waterLevelUrl: "",
     voicevoxSpeaker: 3,
     stubSaveAudio: false,
     stubTranscript: "",

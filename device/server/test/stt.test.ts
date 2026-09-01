@@ -47,6 +47,7 @@ function configFor(url: string): Config {
     anthropicBaseUrl: url,
     voicevoxUrl: "",
     housePowerUrl: "",
+    waterLevelUrl: "",
     voicevoxSpeaker: 3,
     stubSaveAudio: false,
     stubTranscript: "",

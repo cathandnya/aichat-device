@@ -48,6 +48,11 @@ export interface Config {
    * 空なら電力について聞かれても答えられない（道具を持たせない）。
    */
   housePowerUrl: string;
+  /**
+   * 製氷機タンクの水位センサー（water-level）の URL。
+   * 空なら水について聞かれても答えられない（道具を持たせない）。
+   */
+  waterLevelUrl: string;
   stubSaveAudio: boolean;
   stubTranscript: string;
 }
@@ -163,6 +168,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     appleSpeechUrl: (env.APPLE_SPEECH_URL ?? "").replace(/\/+$/, ""),
     voicevoxUrl: (env.VOICEVOX_URL ?? "").replace(/\/+$/, ""),
     housePowerUrl: (env.HOUSE_POWER_URL ?? "").replace(/\/+$/, ""),
+    waterLevelUrl: (env.WATER_LEVEL_URL ?? "").replace(/\/+$/, ""),
     voicevoxSpeaker,
     stubSaveAudio: env.STUB_SAVE_AUDIO === "1",
     stubTranscript: env.STUB_TRANSCRIPT ?? "明日の天気を教えて",

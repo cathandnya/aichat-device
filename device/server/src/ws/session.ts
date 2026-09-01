@@ -35,6 +35,7 @@ import {
 } from "../timers.ts";
 import { transcribe } from "../ai/stt.ts";
 import { readPower } from "../house/power.ts";
+import { readWater } from "../house/water.ts";
 import {
   WAKE_HOP_SEC,
   WAKE_WINDOW_SEC,
@@ -1020,6 +1021,17 @@ export class Session {
               },
             ]
           : []),
+        ...(this.config.waterLevelUrl
+          ? [
+              {
+                name: "get_ice_maker_water",
+                description:
+                  "冷蔵庫の製氷機のタンクに水が入っているかを調べる。" +
+                  "有無だけが分かり、残りの量は分からない。",
+                parameters: { type: "object", properties: {} },
+              },
+            ]
+          : []),
       ],
       execute: async (name: string, args: Record<string, unknown>) => {
         switch (name) {
@@ -1070,6 +1082,12 @@ export class Session {
             return watt === null
               ? { ok: false, reason: "電力計に繋がりません" }
               : { ok: true, watt };
+          }
+          case "get_ice_maker_water": {
+            const water = await readWater(this.config.waterLevelUrl);
+            return water === null
+              ? { ok: false, reason: "水位センサーに繋がりません" }
+              : { ok: true, water };
           }
           default:
             return { error: `知らない道具です: ${name}` };
