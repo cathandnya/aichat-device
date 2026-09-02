@@ -174,6 +174,9 @@ VOICEVOX は Docker でなく[公式アプリ](https://voicevox.hiroshiba.jp/)�
 
 ## 開発上の決めごと
 
+実際に踏んだ落とし穴（実機の `adb`、繋ぎ先の切り替え、素材の置き場所）は
+[CLAUDE.md](CLAUDE.md) にまとめてある。
+
 - **Claude / Gemini の API を実際に呼んで動作確認しない。** 課金が発生する。
   検証はユーザーが自分の判断で行う（`../aichat/CLAUDE.md` と同じ）。
   テストは偽の上流を立てて本物のコードを通す
