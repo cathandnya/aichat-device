@@ -2,6 +2,7 @@ package jp.local.aichat.device
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioManager
@@ -106,6 +107,23 @@ class MainActivity : Activity() {
 
         applyMock(intent?.getStringExtra("mock"), intent?.getStringExtra("emotion"))
         tick()
+    }
+
+    /**
+     * 起動中にもう一度 `am start` された。**mock を差し替える。**
+     *
+     * `launchMode="singleTask"` かつ `category.HOME`（ランチャー登録）なので、
+     * **この端末では `onCreate` がまず二度と呼ばれない**。電源が入った時点で
+     * ホームとして起動しており、`force-stop` しても系がすぐ起こし直す。
+     * そのため `am start --es mock …` は常にこちらに来る。
+     *
+     * ここで拾わないと、**見た目を試す口が実機でだけ効かない**。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 以後の getIntent() もこれを返すようにしておく。
+        setIntent(intent)
+        applyMock(intent.getStringExtra("mock"), intent.getStringExtra("emotion"))
     }
 
     override fun onRequestPermissionsResult(
@@ -249,6 +267,9 @@ class MainActivity : Activity() {
      *
      * **`speaking` を渡すと口も動く。** 音は鳴らないが、パラパラの
      * 見え方はこれで確かめられる。`--es emotion` は表情。
+     *
+     * **考え中の顔は `--es mock thinking` で見る。** 感情ではなく状態なので
+     * `--es emotion` では出ない（FaceView.faceSlug）。
      */
     private fun applyMock(name: String?, emotion: String?) {
         mockState = name?.let { State.of(it) }

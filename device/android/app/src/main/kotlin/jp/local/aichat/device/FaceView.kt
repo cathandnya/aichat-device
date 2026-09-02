@@ -43,7 +43,12 @@ class FaceView(context: Context) : View(context) {
     var appear: Float = 0f
     /** まばたき。 */
     var eyeClosed: Boolean = false
-    /** いまの表情。サーバーからタグで届く想定（docs/08）。 */
+    /**
+     * いまの表情。サーバーからタグで届く（docs/08）。
+     *
+     * **これだけで顔が決まるわけではない。** 考え中は [state] が勝つ
+     * （[faceSlug]）。
+     */
     var emotion: Emotion = Emotion.NEUTRAL
 
     /** 時計の濃さ。`appear` と入れ替わりで薄くなる。 */
@@ -73,7 +78,8 @@ class FaceView(context: Context) : View(context) {
     private fun drawFace(canvas: Canvas) {
         if (appear <= 0f) return
         val current = face ?: return
-        val base = current.base(emotion) ?: return
+        val slug = faceSlug()
+        val base = current.base(slug) ?: return
 
         src.set(0, 0, base.width, base.height)
         dst.set(0, 0, width, height)
@@ -85,12 +91,29 @@ class FaceView(context: Context) : View(context) {
         paint.alpha = (255 * appear.coerceIn(0f, 1f)).toInt()
 
         canvas.drawBitmap(base, src, dst, paint)
-        current.eye(emotion, eyeClosed)?.let { canvas.drawBitmap(it, src, dst, paint) }
+        current.eye(slug, eyeClosed)?.let { canvas.drawBitmap(it, src, dst, paint) }
         current.mouth(mouth)?.let { canvas.drawBitmap(it, src, dst, paint) }
 
         paint.alpha = 255
         canvas.restoreToCount(saved)
     }
+
+    /**
+     * どの顔を出すか。**状態が表情より優先する。**
+     *
+     * 顔を決めるものが 2 系統ある。
+     *
+     *     state    いま何をしているか（考え中・聞き取り中…）
+     *     emotion  いま喋っている文の感情（docs/08 のタグ）
+     *
+     * 重なるのは `THINKING` だけ。**考えている間は表情を出す材料が無い**
+     * ——タグは読み上げの直前に届くので、返事を待っている間の `emotion` は
+     * 前の文の残りか `NEUTRAL` でしかない。ここで考える顔に差し替える。
+     *
+     * 喋り始めれば `THINKING` を抜けるので、表情の顔に戻る。
+     */
+    private fun faceSlug(): String =
+        if (state == State.THINKING) THINKING_FACE else emotion.slug
 
     /**
      * 待受中のアナログ時計。**目盛りと針だけ。**
@@ -279,6 +302,13 @@ class FaceView(context: Context) : View(context) {
          */
         const val LEVEL_FULL = 0.06f
 
+        /**
+         * 考え中の顔のファイル名の頭。
+         *
+         * **[Emotion] に無いのは、これが感情ではなく状態だから。**
+         * 絵が無ければ `Face` が `normal` に落とすので、置かなくても壊れない。
+         */
+        const val THINKING_FACE = "thinking"
 
         val TICK_MAJOR: Int = Color.parseColor("#8a91a0")
         val SECOND_HAND: Int = Color.parseColor("#c96a5a")

@@ -17,8 +17,21 @@ import android.graphics.BitmapFactory
  *     mouse_1.png           半開き
  *     mouse_2.png           大きく開く
  *
- * **口は表情で変わらないので共通の 1 組。** 土台と目だけ表情ごとに
- * 差し替える（docs/08 の 5 種類）。
+ * 表情ごとに `happy.png` / `happy_eye.png` … と同じ 3 枚組が並ぶ。
+ *
+ * **口は表情で変わらないので共通の 1 組。** 土台と目だけ差し替える。
+ *
+ * ### 差し替えの単位は「表情」ではなく slug ★
+ *
+ * 引くのは [Emotion] ではなく**ファイル名の頭（slug）**にしてある。
+ * 顔を決めるものが 2 系統あるため。
+ *
+ *     docs/08 の 5 表情   normal / happy / sad / angry / surprised
+ *     考え中              thinking
+ *
+ * `thinking` は**感情ではなく状態**（返事を待っている間）なので、
+ * [Emotion] に足すと AI に `[thinking]` を吐かせる話になってしまう。
+ * どちらを出すかは [FaceView] が決め、ここは名前で引くだけにする。
  *
  * ### なぜ `assets` で、`drawable` ではないか ★
  *
@@ -32,8 +45,8 @@ import android.graphics.BitmapFactory
  *
  * ### 読み込みは遅らせる
  *
- * 5 表情 × 3 枚を起動時に全部展開すると、480x480 の PNG が 15 枚ぶん
- * メモリに乗る。**使われた表情だけ**読んで覚える。
+ * 6 顔 × 3 枚を起動時に全部展開すると、480x480 の PNG が 18 枚ぶん
+ * メモリに乗る。**使われた顔だけ**読んで覚える。
  *
  * **画像が無くても壊れない。** 顔が出ないだけで、声はそのまま動く。
  */
@@ -42,15 +55,15 @@ class Face(context: Context) {
     private val assets = context.assets
     private val cache = HashMap<String, Bitmap?>()
 
-    /** 土台。表情ごと。絵が無ければ `normal` に落ちる。 */
-    fun base(emotion: Emotion): Bitmap? =
-        load("${emotion.slug}.png") ?: load("normal.png")
+    /** 土台。顔ごと。絵が無ければ `normal` に落ちる。 */
+    fun base(slug: String): Bitmap? =
+        load("$slug.png") ?: load("normal.png")
 
     /** 目。閉じ絵が無ければ開いたまま（まばたきしないだけで壊れない）。 */
-    fun eye(emotion: Emotion, closed: Boolean): Bitmap? {
+    fun eye(slug: String, closed: Boolean): Bitmap? {
         val suffix = if (closed) "_eye_close" else "_eye"
-        return load("${emotion.slug}$suffix.png")
-            ?: load("${emotion.slug}_eye.png")
+        return load("$slug$suffix.png")
+            ?: load("${slug}_eye.png")
             ?: load("normal$suffix.png")
             ?: load("normal_eye.png")
     }

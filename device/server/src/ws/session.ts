@@ -616,6 +616,17 @@ export class Session {
   }
 
   private async sendAudio(audio: Buffer): Promise<void> {
+    // **音が出るまで `thinking` のまま。** ここが「回答中」の始まり。
+    //
+    // 以前は最初の delta で切り替えていたが、**文字が出てから最初の音が
+    // 鳴るまでに VOICEVOX の合成ぶんの間がある**。その間は縁も顔も
+    // 「回答中」なのに何も聞こえないので、黙って固まったように見えた。
+    // この機械は音声が主なので、**耳に合わせる**。
+    //
+    // 2 文目以降はもう `speaking` なので、ここは素通りする（合成は
+    // 鳴っている裏で走る。SpeechQueue 参照）。
+    if (this.state === "thinking") this.setState("speaking", "回答中");
+
     const now = Date.now();
     this.speakingUntil =
       Math.max(now, this.speakingUntil) + wavDurationMs(audio) * PLAYBACK_SLACK;
@@ -857,7 +868,6 @@ export class Session {
                 tagged = part.emotion;
                 continue;
               }
-              if (!answer) this.setState("speaking", "回答中");
               answer += part;
               this.io.send({ type: "answer", text: answer });
               for (const sentence of splitter.push(part)) {
