@@ -35,6 +35,11 @@ device/web/public/character/*.png
 # ウェイクワードに気づいたときの音。同じ理由で追跡しない。
 device/web/public/wake.mp3
 device/android/app/src/main/assets/wake.mp3
+# 動画用のデモ音声。VOICEVOX で作った合成音なので追跡しない。
+# 台本は demo/gen.sh にあるので、走らせれば作り直せる。
+demo/*.wav
+# 一覧は gen.sh が台本から吐く生成物。追跡しない。
+demo/commands.json
 
 echo
 

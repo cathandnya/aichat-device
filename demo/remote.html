@@ -1,0 +1,151 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>デモ音声リモコン</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #14161a; --fg: #e8eaed; --dim: #9aa0a6;
+    --card: #1e2127; --line: #2c3038;
+    --accent: #6ea8fe; --wake: #ffd166; --playing: #34d399;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 20px 60px;
+    background: var(--bg); color: var(--fg);
+    font: 15px/1.5 system-ui, -apple-system, "Hiragino Sans", sans-serif;
+  }
+  header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .hint { color: var(--dim); font-size: 13px; }
+
+  /* 呼びかけ。押す回数が一番多いので大きく置く。 */
+  .wake {
+    width: 100%; margin: 16px 0 6px; padding: 18px;
+    background: var(--wake); color: #211a00; border: 0; border-radius: 12px;
+    font: 600 18px/1.2 inherit; cursor: pointer;
+  }
+  .wake:active { transform: translateY(1px); }
+
+  .mode { display: flex; gap: 8px; align-items: center; margin: 14px 0 2px; color: var(--dim); font-size: 13px; }
+  .mode label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+
+  h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: .08em;
+    color: var(--dim); margin: 22px 0 8px; text-transform: none;
+  }
+  .grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  button.cmd {
+    padding: 14px; text-align: left; cursor: pointer;
+    background: var(--card); color: var(--fg);
+    border: 1px solid var(--line); border-radius: 10px;
+    font: inherit;
+  }
+  button.cmd:hover { border-color: var(--accent); }
+  button.cmd:active { transform: translateY(1px); }
+  button.cmd .id { display: block; color: var(--dim); font-size: 11px; margin-top: 6px; }
+  /* 終了語。呼びかけと組にならないので見分けが付くようにする。 */
+  button.cmd.nofull { border-style: dashed; }
+  /* 鳴っている間は見て分かるようにする。撮影中に二重で押さないため。 */
+  button.playing, .wake.playing { outline: 2px solid var(--playing); border-color: var(--playing); }
+
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 10px 20px; background: #0f1114; border-top: 1px solid var(--line);
+    color: var(--dim); font-size: 13px;
+  }
+  kbd {
+    background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 6px; font: 12px ui-monospace, monospace; color: var(--fg);
+  }
+</style>
+
+<header>
+  <h1>デモ音声リモコン</h1>
+  <span class="hint">押すと鳴る。端末に聞かせて撮る用。</span>
+</header>
+
+<button class="wake" id="wake">🔔 ずんだもん（呼びかけ）</button>
+
+<div class="mode">
+  <label><input type="checkbox" id="full"> 呼びかけ込みで鳴らす（1 本もの）</label>
+  <span id="gapNote"></span>
+</div>
+
+<main id="list"></main>
+
+<footer>
+  <kbd>Space</kbd> 呼びかけ ／ <kbd>1</kbd>–<kbd>9</kbd> 上から順に ／ <kbd>Esc</kbd> 止める
+  　<span id="status"></span>
+</footer>
+
+<script>
+const list = document.getElementById("list");
+const wakeBtn = document.getElementById("wake");
+const fullBox = document.getElementById("full");
+const status = document.getElementById("status");
+let audio = null;      // いま鳴っているもの
+let buttons = [];      // 数字キー用（並び順）
+
+const stop = () => { if (audio) { audio.pause(); audio = null; } paint(null); };
+
+function paint(el) {
+  document.querySelectorAll(".playing").forEach(n => n.classList.remove("playing"));
+  if (el) el.classList.add("playing");
+}
+
+// **前の音を必ず止めてから鳴らす。** 重ねると端末が聞き取れない。
+function play(id, el) {
+  stop();
+  audio = new Audio(encodeURIComponent(id) + ".wav");
+  paint(el);
+  status.textContent = "▶ " + id;
+  audio.addEventListener("ended", () => { paint(null); status.textContent = ""; });
+  audio.play().catch(e => { status.textContent = "鳴らせない: " + e.message; paint(null); });
+}
+
+fetch("commands.json").then(r => r.json()).then(data => {
+  document.getElementById("gapNote").textContent =
+    "（効果音を待つ無音 " + data.gap + " 秒）";
+  wakeBtn.textContent = "🔔 " + data.wake.text + "（呼びかけ）";
+  wakeBtn.onclick = () => play(data.wake.id, wakeBtn);
+
+  let grid = null;
+  for (const row of data.rows) {
+    if (row.section) {
+      const h = document.createElement("h2");
+      h.textContent = row.section;
+      list.append(h);
+      grid = document.createElement("div");
+      grid.className = "grid";
+      list.append(grid);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.className = "cmd";
+    b.innerHTML = "";
+    b.append(row.text);
+    const small = document.createElement("span");
+    small.className = "id";
+    small.textContent = row.id;
+    b.append(small);
+    // 「呼びかけ込み」のときだけ -full を鳴らす。
+    // **終了語には -full が無い。** 追い質問の窓の中で言う言葉なので、
+    // 呼びかけと組にする意味がない。印が付いていてもそのまま鳴らす。
+    b.onclick = () =>
+      play(fullBox.checked && !row.nofull ? row.id + "-full" : row.id, b);
+    if (row.nofull) b.classList.add("nofull");
+    grid.append(b);
+    buttons.push(b);
+  }
+}).catch(e => {
+  list.textContent = "commands.json が読めない（./demo/gen.sh を先に走らせる）: " + e.message;
+});
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); wakeBtn.click(); }
+  else if (e.key === "Escape") stop();
+  else if (/^[1-9]$/.test(e.key)) buttons[+e.key - 1]?.click();
+});
+</script>
