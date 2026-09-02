@@ -27,7 +27,6 @@ import {
   ANSWER_LENGTH_LABELS,
   THINKING_LEVELS,
   THINKING_LEVEL_LABELS,
-  MAX_END_PHRASES,
   MAX_CONTEXT_TURNS,
   MAX_CONVERSATION_GAP_MIN,
   MAX_FOLLOW_UP_SEC,
@@ -406,17 +405,6 @@ function settingsPage(
          </fieldset>
 
          <fieldset>
-           <legend>会話を終える語</legend>
-           <textarea name="endPhrases" rows="2"
-             placeholder="ありがとう&#10;おわり">${escapeHtml(config.endPhrases.join("\n"))}</textarea>
-           <p class="hint">
-             1行に1つ、${MAX_END_PHRASES}個まで。これが聞こえたら会話を終えます。
-             空にもできます。<strong>「ありがとう」は会話の途中にも出る</strong>ので、
-             意図せず終わるようなら減らしてください。
-           </p>
-         </fieldset>
-
-         <fieldset>
            <legend>読み上げの速さ</legend>
            <select name="speechSpeed">${speedOptions}</select>
            <p class="hint">声の高さは変えずに話す速さだけを変えます（VOICEVOX の speedScale）。据え置きのデバイスは待たされる感じが出やすいので、既定より速めにしてあります。</p>
@@ -538,7 +526,6 @@ export async function handleAdminConfigUpdate(
       followUpSec: form.get("followUpSec") ?? undefined,
       conversationGapMin: form.get("conversationGapMin") ?? undefined,
       contextTurns: form.get("contextTurns") ?? undefined,
-      endPhrases: form.get("endPhrases") ?? undefined,
       wakeReply: form.get("wakeReply") ?? undefined,
       systemPrompt: form.get("systemPrompt") ?? undefined,
       // チェックボックスは外れていると何も送られてこない。

@@ -20,7 +20,13 @@
  *   読み上げが終わる     → 追い質問の窓を開く（既定 8 秒）
  *   窓の間に話しかける   → 同じチャットの続き。窓を開き直す
  *   窓が無言で閉じる     → チャット終了
- *   終了語／上限／エラー → チャット終了
+ *   AI が終わりを宣言   → チャット終了（`end_chat`）
+ *   上限／エラー         → チャット終了
+ *
+ * **終わりを決めるのは AI。** 以前は終了語（「ありがとう」など）を
+ * 文字列一致で拾って黙って閉じていたが、**無言で終わるのは感じが悪い**。
+ * いまは `end_chat` 道具の呼び出しで終わりを受け取り、AI が別れの挨拶を
+ * 言いながらこれを呼ぶ。**挨拶を鳴らし終えてから**閉じる。
  */
 
 import { handleChat, type ServerTools } from "../ai/chat.ts";
@@ -211,6 +217,14 @@ export class Session {
    * 「はい？」を繰り返す機械になる。1回だけにする。
    */
   private acknowledged = false;
+  /**
+   * AI が `end_chat` を呼んだか。**別れの挨拶を鳴らし終えてから閉じる。**
+   *
+   * 道具の中で閉じてしまうと、まだ喋っていない挨拶ごと `speech.cancel()`
+   * で消える。ここで印だけ立て、鳴り終わり（`onSpoken` → `openFollowUp`）
+   * で窓を開かずに閉じる。
+   */
+  private farewell = false;
 
   private readonly config: Config;
   private readonly io: SessionIO;
@@ -517,6 +531,14 @@ export class Session {
    * 誤爆が気になる家庭が止められるようにしてある。
    */
   private openFollowUp(): void {
+    // **AI が終わりを宣言していたら窓は開かない。**
+    // 「またね」と言った直後に「続けてどうぞ」と待つのは噛み合わない。
+    if (this.farewell) {
+      this.closeChat("phrase");
+      this.setState("idle", "話しかけてください");
+      return;
+    }
+
     // **鳴り終わってから数え始める。** 送出は socket に渡した時点で
     // 返るので、ここで待たないと読み上げの長さぶん窓が短くなる。
     // 鳴っている間に窓を開いても、自分の声を拾うだけで意味がない。
@@ -650,6 +672,7 @@ export class Session {
     this.speakingUntil = 0;
     this.utterance = [];
     this.endpointer = null;
+    this.farewell = false;
     this.clearFollowTimer();
 
     if (this.chatId) {
@@ -720,13 +743,6 @@ export class Session {
     console.log(`[speech] 聞き取り: 「${raw}」`);
 
     const saved = readConfig();
-
-    // **終了語。**AI を呼ばずにここで終える。
-    if (question && matchesWake(question, saved.endPhrases)) {
-      this.closeChat("phrase");
-      this.setState("idle", "話しかけてください");
-      return;
-    }
 
     // **窓の中でウェイクワードを言われたら仕切り直す。**
     // ここで拾わないと「ずんだもん」だけが質問として送られて空になる。
@@ -1021,6 +1037,16 @@ export class Session {
           description: "いまの音量を調べる。",
           parameters: { type: "object", properties: {} },
         },
+        {
+          name: "end_chat",
+          description:
+            "会話を終える。「ありがとう」「またね」「おわり」など、" +
+            "相手が話を切り上げようとしていると分かったときに呼ぶ。" +
+            "**別れの挨拶は、この道具を呼んだうえで本文として言うこと。**" +
+            "呼んだあとは追い質問を待たずに待機に戻るので、" +
+            "まだ話が続きそうなときは呼んではいけない。",
+          parameters: { type: "object", properties: {} },
+        },
         ...(this.config.housePowerUrl
           ? [
               {
@@ -1114,6 +1140,14 @@ export class Session {
             return this.volume === null
               ? { known: false }
               : { known: true, percent: Math.round(this.volume * 100) };
+          }
+          case "end_chat": {
+            // **ここでは閉じない。印を立てるだけ。**
+            // 閉じると `speech.cancel()` が走り、これから言う別れの挨拶が
+            // 消える。実際に閉じるのは鳴り終わったあと（`openFollowUp`）。
+            this.farewell = true;
+            console.log("[chat] AI が会話の終わりを宣言しました");
+            return { ok: true };
           }
           case "get_house_power": {
             const watt = await readPower(this.config.housePowerUrl);

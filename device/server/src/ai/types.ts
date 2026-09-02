@@ -313,8 +313,6 @@ export interface AppConfig {
   wakeWords: string[];
   /** 追い質問を受け付ける秒数。0 なら毎回ウェイクワードが要る。 */
   followUpSec: number;
-  /** これが聞こえたら会話を終える。空でもよい。 */
-  endPhrases: string[];
   /**
    * 名前を呼ばれただけのときの返事。**既定は空で、効果音だけ。**
    *
@@ -412,20 +410,6 @@ export function isFollowUpSec(value: unknown): value is number {
 }
 
 /**
- * 会話を終える語。ウェイクワードと同じ仕組み（文字列一致）で判定する。
- *
- * 空にもできる。「ありがとう」は会話の途中にも出るので、
- * 誤って終わるのが気になるなら消せるようにしてある。
- */
-export const MAX_END_PHRASES = 8;
-
-export function isEndPhrases(value: unknown): value is string[] {
-  if (!Array.isArray(value)) return false;
-  if (value.length > MAX_END_PHRASES) return false;
-  return value.every((v) => typeof v === "string" && v.trim().length >= 2);
-}
-
-/**
  * 名前を呼ばれただけのときの返事。
  *
  * 「ずんだもん」とだけ言われて質問が続かなかったとき、
@@ -498,7 +482,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   // 「すんだもん」は濁点が落ちた聞こえ方。足しても誤起動は増えなかった。
   wakeWords: ["ずんだもん", "すんだもん"],
   followUpSec: 8,
-  endPhrases: ["ありがとう", "おわり", "もういい", "またね"],
   // **既定は空。** 効果音だけで返事はしない（アレクサに合わせた）。
   wakeReply: "",
   conversationGapMin: 10,

@@ -23,11 +23,9 @@ import {
   isSttModel,
   isContextTurns,
   isConversationGapMin,
-  isEndPhrases,
   isFollowUpSec,
   isWakeReply,
   isWakeWords,
-  MAX_END_PHRASES,
   MAX_CONTEXT_TURNS,
   MAX_CONVERSATION_GAP_MIN,
   MAX_FOLLOW_UP_SEC,
@@ -85,9 +83,6 @@ export function readConfig(): AppConfig {
     followUpSec: isFollowUpSec(raw.followUpSec)
       ? raw.followUpSec
       : DEFAULT_CONFIG.followUpSec,
-    endPhrases: isEndPhrases(raw.endPhrases)
-      ? raw.endPhrases
-      : [...DEFAULT_CONFIG.endPhrases],
     wakeReply: isWakeReply(raw.wakeReply)
       ? raw.wakeReply
       : DEFAULT_CONFIG.wakeReply,
@@ -122,7 +117,6 @@ export interface ConfigPatch {
   speechSpeed?: unknown;
   wakeWords?: unknown;
   followUpSec?: unknown;
-  endPhrases?: unknown;
   wakeReply?: unknown;
   conversationGapMin?: unknown;
   contextTurns?: unknown;
@@ -241,24 +235,6 @@ export function validatePatch(
     }
   }
 
-  let endPhrases = current.endPhrases;
-  if (patch.endPhrases !== undefined) {
-    // 管理UI からは改行区切りの文字列で来る。空にもできる。
-    const list =
-      typeof patch.endPhrases === "string"
-        ? patch.endPhrases
-            .split(/[\n,、]/)
-            .map((w) => w.trim())
-            .filter((w) => w.length > 0)
-        : patch.endPhrases;
-
-    if (isEndPhrases(list)) {
-      endPhrases = list.map((w) => w.trim());
-    } else {
-      errors.push(`終了語の値が不正です（2文字以上を ${MAX_END_PHRASES} 個まで）。`);
-    }
-  }
-
   let wakeReply = current.wakeReply;
   if (patch.wakeReply !== undefined) {
     if (isWakeReply(patch.wakeReply)) {
@@ -347,7 +323,6 @@ export function validatePatch(
       speechSpeed,
       wakeWords,
       followUpSec,
-      endPhrases,
       wakeReply,
       conversationGapMin,
       contextTurns,
