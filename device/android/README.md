@@ -70,6 +70,65 @@ adb shell am start -n jp.local.aichat.device/.MainActivity
 **前の接続先のサーバーが動いていると、そちらに繋ぎ直してしまう**
 ことがある。切り替えるときは古いほうを止めておく。
 
+#### `sed` の置換元は決め打ちにしない
+
+上のコマンドは**いまの値が分かっているときだけ**効く。外れても
+`sed` は黙って何もしないので、**成功したように見えて古いままになる。**
+
+先に読む。
+
+```bash
+adb shell "run-as jp.local.aichat.device \
+  cat /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml"
+```
+
+#### heredoc でファイルごと書き直さない ★
+
+`run-as` の shell は `/data/local` に一時ファイルを作れず、
+**heredoc が使えない**。
+
+```
+sh: can't create temporary file /data/local/sh36n2pw.tmp: Permission denied
+```
+
+**リダイレクトだけが先に走るので、ファイルが空になる。**
+`device-id` も一緒に消え、端末が別物として繋ぎ直す。
+
+どうしても丸ごと置き換えるなら、`push` してから `cp` する。
+
+```bash
+adb push prefs.xml /data/local/tmp/prefs.xml
+adb shell "run-as jp.local.aichat.device \
+  cp /data/local/tmp/prefs.xml \
+  /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml"
+```
+
+**`device-id` を書き戻すのを忘れない。** 消すと端末の同一性が変わる。
+
+### 繋がったかは**サーバー側**で確かめる ★
+
+端末の `繋がりました` は当てにならない。**古い接続先に繋がっても同じ
+ログが出る。** 実際にこれで「繋がっている」と誤認した。
+
+サーバー側に出る行を見る。
+
+```
+[ws] つながりました: 192.168.1.58 (android-ebe7)
+```
+
+ソケットでも確かめられる。`LISTEN` しか出ないなら繋がっていない。
+
+```bash
+lsof -iTCP:9801 -P | grep ESTABLISHED
+```
+
+**Mac の IP は思い込まない。** `192.168.1.2` と `192.168.1.20` のように
+紛らわしいことがある。
+
+```bash
+ipconfig getifaddr en0
+```
+
 ## 立ち絵を入れる
 
 `app/src/main/assets/character/` に置く。**git には入れない**
@@ -93,6 +152,10 @@ adb shell am start -n jp.local.aichat.device/.MainActivity
 `happy` / `sad` / `angry` / `surprised` も同じ組を用意する。
 **口は表情で変わらないので共通の 1 組**でよい。
 
+`thinking` も同じ組で置く。**これだけは感情ではなく状態**で、
+返事を待っている間（`state=thinking`）に出る。無ければ `normal` に
+落ちるだけなので、置かなくても壊れない。
+
 - **全部同じ大きさにすること**（480x480）。重ねて位置を合わせるので、
   1 枚でも違うとずれる
 - **画像が無くても壊れない**（顔が出ないだけで、声はそのまま動く）。
@@ -112,13 +175,20 @@ adb shell am start -n jp.local.aichat.device/.MainActivity
 登場・口パク・まばたきが見られる。
 
 ```bash
-adb shell am force-stop jp.local.aichat.device
 adb shell am start -n jp.local.aichat.device/.MainActivity \
   --es mock speaking --es emotion happy
 ```
 
 `mock` は `listening` / `following` / `thinking` / `speaking` / `error`。
 `speaking` のときだけ口が動く（音は鳴らない）。
+**`thinking` は考え中の顔になる。** 感情ではなく状態なので
+`--es emotion` では出ない（`FaceView.faceSlug`）。
+
+`--es` を渡さずに起動すれば、mock が外れてサーバー配下に戻る。
+
+> **`force-stop` は要らない。** 繋ぎ先と違って、mock は `onNewIntent`
+> でも拾う。ホームアプリにしていると `force-stop` しても系がすぐ
+> 起こし直すので、**そもそも止めた状態から起動できない。**
 
 ## 実機で最初に見ること
 
