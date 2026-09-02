@@ -26,8 +26,8 @@
 **`-s` で必ず指名する。**
 
 ```bash
-adb devices -l          # G070RQ13827506RJ が実機
-adb -s G070RQ13827506RJ ...
+adb devices -l          # 実機のシリアルを確かめる
+adb -s <シリアル> ...
 ```
 
 ### `am start --es` は届かないことがある ★
@@ -56,7 +56,7 @@ adb -s G070RQ13827506RJ ...
 **成功したように見えて古いまま**になる。先に読む。
 
 ```bash
-adb -s G070RQ13827506RJ shell "run-as jp.local.aichat.device \
+adb -s <シリアル> shell "run-as jp.local.aichat.device \
   cat /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml"
 ```
 
@@ -77,11 +77,11 @@ lsof -iTCP:9801 -P | grep ESTABLISHED     # LISTEN だけなら繋がってい�
 サーバーのログにも出る。
 
 ```
-[ws] つながりました: 192.168.1.58 (android-ebe7)
+[ws] つながりました: <端末の IP> (<device-id>)
 ```
 
-**Mac の IP を思い込まない。** `192.168.1.2`（常用サーバー）と
-`192.168.1.20`（この Mac）のように紛らわしい。`ipconfig getifaddr en0`。
+**Mac の IP を思い込まない。** 常用サーバーと開発機の IP が 1 桁違いで
+紛らわしいことがある。毎回 `ipconfig getifaddr en0` で確かめる。
 
 ### 見た目を確かめる
 

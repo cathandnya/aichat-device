@@ -305,8 +305,8 @@ adb shell settings put secure lock_screen_show_notifications 0
 ### `.local` が引けない
 
 Android は mDNS を `NsdManager` の層にしか持たないので、OkHttp が使う
-`InetAddress` からは `pino.local` を解決できない（API 30 の実機で確認。
-`ping pino.local` も通らない）。**繋ぎ先は IP で書く。**
+`InetAddress` からは `.local` の名前を解決できない（API 30 の実機で確認。
+`ping <名前>.local` も通らない）。**繋ぎ先は IP で書く。**
 
 ### 平文の `ws://` が既定で拒まれる
 

@@ -208,7 +208,7 @@ class MainActivity : Activity() {
      *
      *     adb shell am force-stop jp.local.aichat.device
      *     adb shell am start -n jp.local.aichat.device/.MainActivity \
-     *       --es server "ws://192.168.1.10:9801/ws"
+     *       --es server "ws://192.0.2.1:9801/ws"
      */
     private fun serverUrl(): String {
         val prefs = getSharedPreferences("aichat-device", Context.MODE_PRIVATE)
@@ -543,15 +543,16 @@ class MainActivity : Activity() {
         const val TAG = "aichat"
         const val REQUEST_MIC = 1
         /**
-         * **IP で書く。`.local` は使えない。**
+         * **家のサーバーの IP に書き換えて建てる。**
          *
-         * Android は mDNS をアプリの層（`NsdManager`）にしか持たないので、
-         * `InetAddress` 経由で引く OkHttp からは `pino.local` が解決できない
-         * （API 30 の実機で確認）。名前で書いておくと、アプリのデータを
-         * 消したときに既定へ戻って**繋がらない機械**になる。
+         * **`.local` は使えない。** Android は mDNS をアプリの層
+         * （`NsdManager`）にしか持たないので、`InetAddress` 経由で引く
+         * OkHttp からは名前を解決できない（API 30 の実機で確認）。名前で
+         * 書いておくと、アプリのデータを消したときに既定へ戻って
+         * **繋がらない機械**になる。
          *
-         * 引っ越したら `--es server` で上書きする（SharedPreferences に残る）。
+         * 建て直さずに変えるなら `--es server`（SharedPreferences に残る）。
          */
-        const val DEFAULT_SERVER = "ws://192.168.1.2:9801/ws"
+        const val DEFAULT_SERVER = "ws://192.0.2.1:9801/ws"
     }
 }

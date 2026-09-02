@@ -65,13 +65,13 @@ admin で減らす（admin の注意書きのとおり）。
 
 ## 作り直す
 
-pino の VOICEVOX を呼んで、このフォルダに吐く。
+家の VOICEVOX を呼んで、このフォルダに吐く。
 
 ```sh
 ./demo/gen.sh                          # 春日部つむぎ（既定）
 SPK=2 ./demo/gen.sh                    # 別の話者で
 GAP=2.0 ./demo/gen.sh                  # 効果音を待つ間を延ばす
-HOST=http://192.168.1.2:50021 ./demo/gen.sh
+HOST=http://<VOICEVOX の IP>:50021 ./demo/gen.sh
 ```
 
 24kHz / 16bit / モノラルの WAV。繋ぎは [join.py](join.py)（**sox は使わない** —

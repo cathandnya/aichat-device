@@ -10,9 +10,9 @@
 
 | | |
 |---|---|
-| サーバー | `cd device/server && AICHAT_MODE=stub AICHAT_VOICEVOX_URL=http://192.168.1.2:50021 AICHAT_HOST=0.0.0.0 npm start` |
+| サーバー | `cd device/server && AICHAT_MODE=stub AICHAT_VOICEVOX_URL=http://<VOICEVOX の IP>:50021 AICHAT_HOST=0.0.0.0 npm start` |
 | モード | 1〜5 は **stub（課金なし）**、6〜7 は `AICHAT_MODE=live`。起動時の表示で確かめる |
-| 端末の接続先 | **いまは pino に戻してある。** このマシンで試すなら下記のコマンドで `192.168.1.20` に向ける |
+| 端末の接続先 | **既定は家のサーバー。** このマシンで試すなら下記のコマンドで開発機の IP に向ける（`ipconfig getifaddr en0`） |
 | 音量 | **上げておく**。低音量だとエコーが小さく、消去の確認にならない |
 
 端末のログ: `adb logcat -s aichat aichat-aec -v time`
@@ -24,8 +24,8 @@ adb shell am force-stop jp.local.aichat.device
 adb shell "run-as jp.local.aichat.device sh -c 'cat > /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml' <<'X'
 <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
-    <string name="server">ws://192.168.1.2:9801/ws</string>
-    <string name="device-id">android-ebe7</string>
+    <string name="server">ws://<家のサーバーの IP>:9801/ws</string>
+    <string name="device-id">＜いまの device-id を書き戻す＞</string>
 </map>
 X"
 adb shell am start -n jp.local.aichat.device/.MainActivity
@@ -79,8 +79,8 @@ adb shell am force-stop jp.local.aichat.device
 adb shell "run-as jp.local.aichat.device sh -c 'cat > /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml' <<'X'
 <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
-    <string name="server">ws://192.168.1.20:9801/ws</string>
-    <string name="device-id">android-ebe7</string>
+    <string name="server">ws://<開発機の IP>:9801/ws</string>
+    <string name="device-id">＜いまの device-id を書き戻す＞</string>
     <boolean name="aec" value="false" />
 </map>
 X"
@@ -130,10 +130,10 @@ adb shell am start -n jp.local.aichat.device/.MainActivity
 **ここから下は AI を実際に呼ぶ**ので `AICHAT_MODE=live` にする。
 モデルは flash-lite なので数円。
 
-> ★ **pino の `/admin` から systemPrompt の「タイマーはできません」を
+> ★ **家のサーバーの `/admin` から systemPrompt の「タイマーはできません」を
 > 消しておく。** 消さないと、宣言より利用者のプロンプトが勝って
 > 「できません」と答える。**このマシンのぶんは消してあるが、
-> `data/` は git 管理外なので pino には反映されていない。**
+> `data/` は git 管理外なので家のサーバーには反映されていない。**
 
 - [ ] 「ずんだもん、30秒のタイマーかけて」→ かけた返事が返る
       ← ここで `[tool] set_timer ...` がログに出る
@@ -191,6 +191,6 @@ AI が道具を呼ばない場合は説明文の書き方の問題。
 
 ## 終わったら
 
-- [ ] 接続先を **pino に戻す**（上記のコマンド。試験中に切り替えた場合）
+- [ ] 接続先を **家のサーバーに戻す**（上記のコマンド。試験中に切り替えた場合）
 - [ ] 音量を普段の高さに戻す
 - [ ] タイマーが残っていないか（残っていても再起動で消える）

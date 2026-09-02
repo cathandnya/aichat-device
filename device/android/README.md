@@ -33,13 +33,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 繋ぎ先を変える
 
-既定は `ws://192.168.1.2:9801/ws`。焼き込んでいないので、引っ越しても
-建て直さずに済む。
+既定は `MainActivity.DEFAULT_SERVER`（家のサーバーの IP に書き換えて建てる）。
+焼き込んでいないので、引っ越しても建て直さずに済む。
 
 ```bash
 adb shell am force-stop jp.local.aichat.device
 adb shell am start -n jp.local.aichat.device/.MainActivity \
-  --es server "ws://192.168.1.10:9801/ws"
+  --es server "ws://<サーバーの IP>:9801/ws"
 ```
 
 一度渡せば `SharedPreferences` に残る。
@@ -62,7 +62,7 @@ adb shell am start -n jp.local.aichat.device/.MainActivity \
 ```bash
 adb shell am force-stop jp.local.aichat.device
 adb shell "run-as jp.local.aichat.device \
-  sed -i 's|ws://192.168.1.20:9801/ws|ws://192.168.1.2:9801/ws|' \
+  sed -i 's|<いまの URL>|<戻す URL>|' \
   /data/data/jp.local.aichat.device/shared_prefs/aichat-device.xml"
 adb shell am start -n jp.local.aichat.device/.MainActivity
 ```

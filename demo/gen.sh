@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 動画用のデモ音声を作る。pino の VOICEVOX を呼ぶ。
+# 動画用のデモ音声を作る。家の VOICEVOX を呼ぶ（HOST で変えられる）。
 #
 # ウェイクワードと用件を **別のファイルに分けてある**。端末は
 # 「ずんだもん」に気づくと効果音（wake.mp3, 約 1.0 秒）を鳴らすが、
@@ -16,7 +16,7 @@
 #   afplay demo/05-timer-30s-full.wav
 #
 set -e
-HOST="${HOST:-http://pino.local:50021}"
+HOST="${HOST:-http://localhost:50021}"
 SPK="${SPK:-8}"      # 8 = 春日部つむぎ ノーマル
 WAKE="${WAKE:-ずんだもん}"
 # 効果音（1.04 秒）が鳴り終わるまでの間。少し余裕を持たせる。
