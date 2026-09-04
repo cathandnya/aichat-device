@@ -9,11 +9,11 @@
 # 重なり、聞き取りを損なう。**効果音が鳴り終わってから用件を鳴らす。**
 #
 #   afplay demo/00-wake.wav      # 呼ぶ → 効果音が鳴る
-#   afplay demo/05-timer-30s.wav # 鳴り終わってから用件
+#   afplay demo/05-timer-10s.wav # 鳴り終わってから用件
 #
 # 続けて鳴らすだけで済むよう、間に無音を挟んだ 1 本ものも作る（-full）。
 #
-#   afplay demo/05-timer-30s-full.wav
+#   afplay demo/05-timer-10s-full.wav
 #
 set -e
 HOST="${HOST:-http://localhost:50021}"
@@ -70,25 +70,31 @@ printf '%-26s %s\n' "00-wake" "$WAKE"
 # --- 一息で聞く（3 秒待たない） ---
 section "一息で聞く"
 say 02-weather             "明日の天気は"
-say 03-weather-tokyo       "今日の東京の天気は？"
+say 03-weather-today       "今日の天気は？"
+# 日付・時刻・曜日は道具ではなく、chat.ts が指示文に入れた「いま」で答える。
+say 04-clock               "今何時？"
+say 34-train               "中央線動いてる？"
 # --- タイマー ---
 section "タイマー"
-say 05-timer-30s           "30秒のタイマーかけて"
+say 05-timer-10s           "10秒のタイマーかけて"
 say 06-timer-remain        "あと何分？"
 say 07-timer-dup           "5分のタイマーかけて"
 say 08-timer-cancel        "タイマーやめて"
 say 09-timer-pasta         "パスタのタイマー、7分でかけて"
 # --- 音量 ---
 section "音量"
-say 10-vol-up              "もう少し大きくして"
-say 11-vol-down            "もう少し小さくして"
-say 12-vol-max             "最大にして"
-say 13-vol-half            "半分にして"
+say 10-vol-up              "音量を大きくして"
+say 11-vol-down            "音量を小さくして"
+say 12-vol-max             "音量を最大にして"
+say 13-vol-half            "音量を半分にして"
 say 14-vol-get             "いま音量どれくらい？"
 # --- 家の情報 ---
 section "家の情報"
-say 15-house-power         "いま家でどれくらい電気使ってる？"
+say 15-house-power         "今、いえでどれくらい電気使ってる？"
 say 16-ice-water           "製氷機の水ある？"
+# 遠回しな聞き方。道具は水の有無しか分からないので、氷が作れるかは
+# そこから答えさせる。
+say 35-ice-can             "氷作れる？"
 # --- PC の電源 ---
 section "PC の電源"
 say 17-pc-status           "パソコンついてる？"
@@ -99,6 +105,23 @@ section "雑談・その他"
 say 20-hello               "おはよう"
 say 21-selfintro           "あなたは誰？"
 
+# --- 追い質問の窓で言う言葉 ---
+#
+# **呼びかけを付けない。** 追い質問の窓（既定 8 秒）の中で言う言葉なので、
+# ウェイクワードは要らない。会話が続くところを撮るのに使う。
+# 窓の間に話しかければ同じチャットの続きになり、窓が開き直る。
+section "相槌（呼びかけ不要）"
+end 22-aizuchi-sounanda      "そうなんだ"
+end 23-aizuchi-hee           "へえ"
+end 24-aizuchi-naruhodo      "なるほど"
+end 25-aizuchi-sugoi         "すごいね"
+
+section "話をつなぐ（呼びかけ不要）"
+end 26-tsunagi-tokorode      "ところで"
+end 27-tsunagi-sorekara      "それから"
+end 28-tsunagi-jaa           "じゃあ"
+end 29-tsunagi-hokoniha      "ほかには？"
+
 # --- 会話を終える言葉 ---
 #
 # **これだけは呼びかけを付けない。** 追い質問の窓（8 秒）の中で言う言葉で、
@@ -108,7 +131,7 @@ say 21-selfintro           "あなたは誰？"
 section "会話を終える（呼びかけ不要）"
 end 30-end-thanks           "ありがとう"
 end 31-end-owari            "おわり"
-end 32-end-mouii            "もういいよ"
+end 32-end-mouii            "バイバイ"
 end 33-end-matane           "またね"
 
 # 行ごとの JSON をひとつにまとめる。
