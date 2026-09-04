@@ -1,5 +1,9 @@
 # --- Secrets (never commit) ---
 device/server/.env
+# 控え（.env.bak-voicevox など）にも鍵がそのまま入る。**完全一致では
+# 素通しになる**ので、接尾辞の付いたものもまとめて外す。
+device/server/.env.*
+!device/server/.env.example
 
 # --- Node ---
 node_modules/
