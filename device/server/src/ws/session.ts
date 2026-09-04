@@ -992,7 +992,12 @@ export class Session {
         {
           name: "set_timer",
           description:
-            "タイマーをかける。すでに動いているときはかけずに、動いているタイマーを返す。",
+            "タイマーをかける。すでに動いているときはかけずに、動いているタイマーを返す。" +
+            "**利用者がこの用件でタイマーを頼んだときだけ呼ぶ。** " +
+            "長さがはっきり言われていないなら呼ばずに、何分にするか聞き返す。" +
+            "聞き取りは誤ることがあり、呼びかけ（「ずんだもん」）や短い相槌が" +
+            "紛れて届く。**直前にタイマーの話をしていても、それだけを根拠に" +
+            "かけ直してはいけない。**",
           parameters: {
             type: "object",
             properties: {
@@ -1009,7 +1014,11 @@ export class Session {
         },
         {
           name: "cancel_timer",
-          description: "動いているタイマーをやめる。",
+          description:
+            "動いているタイマーをやめる。" +
+            "**`cancelled` を必ず見ること。** false は「動いていなかった」" +
+            "という意味で、**何も止めていない**。そのときは止めたと言わずに、" +
+            "「タイマーは動いていなかった」と伝える。",
           parameters: { type: "object", properties: {} },
         },
         {
@@ -1116,7 +1125,15 @@ export class Session {
           }
           case "cancel_timer": {
             const timer = cancelTimer(this.deviceId);
-            return timer ? { cancelled: true, ...describe(timer) } : { cancelled: false };
+            // **待たせている鳴りも消す。** 会話の最中に時間が来たぶんは
+            // `pendingRing` に積まれ、待機に戻った瞬間に鳴る（`setState`）。
+            // ここで消さないと、**止めたのに別れの挨拶のあとで鳴る**
+            // （実際に起きた）。
+            const held = this.pendingRing;
+            this.pendingRing = null;
+            if (timer) return { cancelled: true, ...describe(timer) };
+            if (held) return { cancelled: true, ...describe({ ...held, remainingSec: 0 }) };
+            return { cancelled: false };
           }
           case "set_volume": {
             // **端末がまだ教えてくれていないうちは、増減を扱えない。**

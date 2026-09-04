@@ -124,10 +124,19 @@ export function setTimer(
   return { ok: true, timer: view(timer, now) };
 }
 
-/** やめる。動いていなければ null。 */
+/**
+ * やめる。動いていなければ null。
+ *
+ * **溜めてあるぶんも捨てる。** 切断中に時間が来たものは `pending` に
+ * 残り、繋ぎ直した瞬間に鳴る（`onRing`）。ここで消さないと
+ * **止めたはずのタイマーが後から鳴る**。
+ */
 export function cancelTimer(deviceId: string, now = Date.now()): TimerView | null {
+  const held = pending.get(deviceId);
+  pending.delete(deviceId);
+
   const entry = timers.get(deviceId);
-  if (!entry) return null;
+  if (!entry) return held ? view(held, now) : null;
   clearTimeout(entry.handle);
   timers.delete(deviceId);
   return view(entry.timer, now);

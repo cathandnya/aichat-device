@@ -146,6 +146,21 @@ test("**切断中に鳴っても捨てない**", () => {
   assert.equal(box.got[0]?.deviceId, "dev-10");
 });
 
+test("**止めたら、溜まっているぶんも鳴らない**", () => {
+  // 切断中に時間が来たものは pending に残る。ここで消さないと、
+  // 止めたはずのタイマーが繋ぎ直した瞬間に鳴る（実際に起きた）。
+  resetAll();
+  setTimer("dev-12", 60);
+  fire("dev-12"); // 受け口が無いまま鳴った → pending に溜まる
+
+  // 溜まっているので「止めるものがあった」と分かる。
+  assert.ok(cancelTimer("dev-12"));
+
+  // 繋ぎ直しても鳴らない。
+  const box = catcher("dev-12");
+  assert.equal(box.got.length, 0);
+});
+
 test("受け口は付け替えられる", () => {
   resetAll();
   let old = false;
