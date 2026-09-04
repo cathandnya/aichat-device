@@ -10,7 +10,7 @@
 
 | | |
 |---|---|
-| サーバー | `cd device/server && AICHAT_MODE=stub AICHAT_VOICEVOX_URL=http://<VOICEVOX の IP>:50021 AICHAT_HOST=0.0.0.0 npm start` |
+| サーバー | `cd device/server && AICHAT_MODE=stub HOST=0.0.0.0 npm start`（読み上げの接続先は `.env` の `VOICEVOX_URL`。**`AICHAT_` が付くのは `AICHAT_MODE` だけ**） |
 | モード | 1〜5 は **stub（課金なし）**、6〜7 は `AICHAT_MODE=live`。起動時の表示で確かめる |
 | 端末の接続先 | **既定は家のサーバー。** このマシンで試すなら下記のコマンドで開発機の IP に向ける（`ipconfig getifaddr en0`） |
 | 音量 | **上げておく**。低音量だとエコーが小さく、消去の確認にならない |
