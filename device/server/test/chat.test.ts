@@ -215,6 +215,29 @@ test("いまの日時を渡す", async () => {
   });
 });
 
+test("音声で入って音声で出ることを伝える", async () => {
+  // 入り口は音声認識なので**同音の誤変換**が混ざる（docs/03 の
+  // 「行き方→生き方」）。出口は VOICEVOX なので**読みが二通りある語**が
+  // 外れる。どちらも `/admin` の systemPrompt とは分けてサーバーが足す。
+  setConfig({ provider: "claude", systemPrompt: "やさしく答えて", emotionTags: false });
+
+  await withUpstream({}, async (app, upstream) => {
+    const response = await app.request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "やあ" }),
+    });
+    await response.text();
+
+    const sent = JSON.parse(upstream.received.at(-1)?.body ?? "{}") as {
+      system?: string;
+    };
+    assert.ok(sent.system?.includes("やさしく答えて"), "利用者の指示は残る");
+    assert.ok(sent.system?.includes("音声認識"), "書き起こしの誤りを伝える");
+    assert.ok(sent.system?.includes("読み上げ"), "読み上げられることを伝える");
+  });
+});
+
 test("感情タグを切ると指示を足さない", async () => {
   setConfig({
     provider: "claude",
