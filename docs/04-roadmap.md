@@ -87,10 +87,12 @@
 - [ ] 連続 ASR の CPU が長時間持つか（12〜15% が持続するか、熱でどうなるか）
 
 ### Phase D: サーバーを据え置きにする
-- [ ] `web/dist` をビルドし、Vite を止めてサーバー1つで配る
-- [ ] **Mac を寝かせない**（`caffeinate -dims`）。寝ると端末が黙る
-- [ ] ログイン時に全部立ち上がる状態にする（ohr は LaunchAgent 済み、VOICEVOX は Docker）
-- [ ] 落ちたときの復帰を確かめる
+- [x] `web/dist` をビルドし、Vite を止めてサーバー1つで配る
+- [x] **Mac を寝かせない。** `caffeinate` ではなく `pmset` で済んでいた
+      （`sleep 0` / `displaysleep 0` / `autorestart 1`）
+- [x] ログイン時に全部立ち上がる状態にする（サーバーと ohr が LaunchAgent、
+      VOICEVOX は Docker の `--restart unless-stopped`）
+- [x] 落ちたときの復帰を確かめる（`kill` して 1 秒で起き直る）
 
 ### Phase E: 端末を作る
 - [x] **ハードを決めた**: **作らない。** 家にある **Echo Spot 初代（2017・`rook`・

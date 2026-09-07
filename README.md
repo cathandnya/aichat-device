@@ -84,6 +84,8 @@ ohr --serve --port 8091 --host 127.0.0.1
 
 # ローカルサーバー。既定は stub（AI を呼ばない・課金なし）
 cd device/server && npm ci && cp .env.example .env && npm start
+#    常駐させるなら device/deploy/macos/ の LaunchAgent
+#    （据え置きはこちら。画面も web/dist ごとここが配る）
 
 # 画面。別のターミナルで
 cd device/web && npm ci && npm run dev

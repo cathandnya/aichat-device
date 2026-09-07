@@ -268,14 +268,20 @@ secure context を満たし、証明書は不要。**LAN から見るときだ�
 
 ## G. 運用
 
-### G-1. 自動起動しているのは音声認識だけ
+### G-1. 自動起動 → **入れた**
 
-`ohr` は LaunchAgent で常駐。**サーバーと画面は手動起動のまま。**
+サーバーも `ohr` も LaunchAgent で常駐する（`device/deploy/macos/`）。
 VOICEVOX は Docker の `--restart unless-stopped` で復帰する。
+画面は `web/dist` をサーバーが配るので、**Vite を起こすのは開発のときだけ。**
 
-### G-2. ログが `/tmp`
+残っているのは、**この機械の絶対パスが plist に直書き**であること
+（`node` の実体と `device/server` の場所）。別の機械に移すなら書き換えが要る。
 
-再起動で消える。問題が起きたときに追えない。
+### G-2. ログが `/tmp` → **サーバーは直した**
+
+サーバーは `~/Library/Logs/aichat-device/server.log` に出すので
+再起動しても残る。**`ohr` の plist は `/tmp` のまま。**
+どちらも**回していない**ので、放っておくと太る。
 
 ### G-3. 更新の手段が無い
 

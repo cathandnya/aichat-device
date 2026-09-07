@@ -103,10 +103,45 @@ open   server/tmp/*.wav     # 語頭が切れていないか・無音判定が�
 
 **上流を一度も呼ばずに録音経路を確定できる。**
 
-## 音声認識を常駐させる（macOS）
+## ログイン時から常駐させる（macOS）
 
-`ohr` にも `brew services` にもサービス化の仕組みが無いので、
-macOS 本来のやり方（**LaunchAgent**）で常駐させる。
+`brew services` のようなものが無いので、macOS 本来のやり方
+（**LaunchAgent**）で登録する。**サーバーと音声認識の 2 つ。**
+plist は `deploy/macos/` にある。
+
+### サーバー
+
+```bash
+mkdir -p ~/Library/Logs/aichat-device
+cp deploy/macos/jp.local.aichat-device.server.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
+```
+
+**入れる前に手で起こしたサーバーを落とす**（`lsof -iTCP:9801 -P`）。
+残っていると後から来た方が `EADDRINUSE` で落ち、`KeepAlive` が
+それを延々と起こし直す。
+
+| したいこと | コマンド |
+|---|---|
+| 状態を見る | `launchctl print gui/$UID/jp.local.aichat-device.server` |
+| 止める | `launchctl bootout gui/$UID/jp.local.aichat-device.server` |
+| 入れ直す | `launchctl kickstart -k gui/$UID/jp.local.aichat-device.server` |
+| ログ | `tail -f ~/Library/Logs/aichat-device/server.log` |
+
+**`server` を直したら `kickstart -k`。** `web` を直したときは
+`npm run build` だけでよい（配信はリクエストごとにディスクを読む）。
+
+plist が置いている前提が 2 つある。**どちらも外すと静かに壊れる。**
+
+- **`WorkingDirectory`** … `src/static.ts` の `serveStatic` の root が
+  作業ディレクトリからの相対。外すと画面が全部 404 になるが、
+  `dist` の有無の判定は絶対パスで通るので**配れているつもりで配れない**
+- **`node` の絶対パス** … ふだんの `node` は fnm のシェルごとの
+  一時ディレクトリにあり、**launchd からは存在しない**
+
+**ログは回していない。**放っておくと太るので、気になったら消す。
+
+### 音声認識（ohr）
 
 ```bash
 cp deploy/macos/jp.local.aichat-device.ohr.plist ~/Library/LaunchAgents/
@@ -123,11 +158,14 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.ohr.p
 | 止める | `launchctl bootout gui/$UID/jp.local.aichat-device.ohr` |
 | ログ | `tail -f /tmp/aichat-device-ohr.log` |
 
-**LaunchDaemon（システム全体）ではなく LaunchAgent（ユーザーごと）**にしている。
-macOS の音声認識はユーザーのセッションで動くもので、TCC の判定も
+**LaunchDaemon（システム全体）ではなく LaunchAgent（ユーザーごと）**に
+している。macOS の音声認識はユーザーのセッションで動くもので、TCC の判定も
 ユーザー単位のため。デバイスは自動ログインで起動するのでこれで足りる。
+サーバーも同じ揃えにしてある。
 
-読み上げ（VOICEVOX）は Docker の `--restart unless-stopped` で復帰するので、
+### 読み上げ（VOICEVOX）
+
+Docker の `--restart unless-stopped` で復帰するので、
 OrbStack がログイン時に立ち上がる設定になっていれば別途の登録は要らない。
 
 ## 本物の AI に繋ぐ（live）
@@ -168,7 +206,8 @@ cd web && npm run dev      # → https://aichat.local:9800
 **既定値は「最小」なので、このモデルを選ぶと初回から失敗する。**「低」にすれば通る。
 
 詳しい理由は画面には出ない（家族に内部の事情を見せないため）。
-`tail -f /tmp/aichat-server.log` に上流の本文がそのまま出る。
+サーバーのログに上流の本文がそのまま出る
+（常駐させているなら `tail -f ~/Library/Logs/aichat-device/server.log`）。
 
 ## ウェイクワードを実マイクで試す
 
@@ -213,7 +252,12 @@ cd web && npm run build          # web/dist を作る
 cd ../server && npm start        # dist があれば画面もここが配る（プロセスが1つ）
 ```
 
-あわせて **Mac を寝かせない**（`caffeinate -dims`）。寝ると端末が黙る。
+据え置きの本番はこれを手で起こさず、**LaunchAgent に任せる**
+（上の[「ログイン時から常駐させる」](#ログイン時から常駐させるmacos)）。
+
+**Mac を寝かせないこと。**寝ると端末が黙る。この機械は `pmset` が
+`sleep 0` / `displaysleep 0` / `autorestart 1` になっているので
+`caffeinate` は要らない。別の機械に移すときは `pmset -g custom` で確かめる。
 
 ### 端末を繋ぐとき
 

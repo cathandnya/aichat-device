@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ローカルサーバーをログイン時から常駐させる LaunchAgent。
+
+  ohr と同じく LaunchAgent（ユーザーごと）にしている。この機械は
+  自動ログインするので、ログイン時に立ち上がれば足りる。
+
+  導入:
+    mkdir -p ~/Library/Logs/aichat-device
+    cp device/deploy/macos/jp.local.aichat-device.server.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
+
+  停止・削除:
+    launchctl bootout gui/$UID/jp.local.aichat-device.server
+    rm ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
+
+  状態:
+    launchctl print gui/$UID/jp.local.aichat-device.server
+
+  入れる前に**手で起こしたサーバーを落とす**（`lsof -iTCP:9801 -P`）。
+  残っていると後から来た方が EADDRINUSE で落ち、KeepAlive が
+  それを延々と起こし直す。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>jp.local.aichat-device.server</string>
+
+  <!--
+    **node は絶対パス。** ふだん使っている fnm の node は
+    シェルごとの一時ディレクトリ（~/.local/state/fnm_multishells/...）に
+    あり、launchd からは存在しない。fnm の既定エイリアスは場所が
+    変わらないのでこれを指す。
+
+    設定は device/server/.env から読む（ソース位置からの相対なので
+    ここで環境変数を渡す必要は無い）。
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USER/.local/share/fnm/aliases/default/bin/node</string>
+    <string>src/main.ts</string>
+  </array>
+
+  <!--
+    **これを外すと画面が全部 404 になる。**
+    src/static.ts の serveStatic の root は作業ディレクトリからの相対。
+    web/dist が「ある」判定だけは絶対パスで通るので、
+    **配れているつもりで配れていない**という見え方をする。
+  -->
+  <key>WorkingDirectory</key>
+  <string>/PATH/TO/aichat-device/device/server</string>
+
+  <!-- 子プロセスの保険。launchd の PATH は既定でほぼ空。 -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 落ちたら起こし直す。端末は繋ぎ直しに来る。 -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- 設定が壊れているときは exit(1) するので、繰り返しすぎないようにする。 -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!--
+    /tmp ではなくここ。**再起動で消えないため**（docs/05-issues.md G-2）。
+    **回していないので放っておくと太る。**気になったら手で消す。
+  -->
+  <key>StandardOutPath</key>
+  <string>/Users/USER/Library/Logs/aichat-device/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USER/Library/Logs/aichat-device/server.log</string>
+</dict>
+</plist>
