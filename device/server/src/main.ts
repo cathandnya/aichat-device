@@ -60,7 +60,7 @@ try {
   process.exit(1);
 }
 
-const warning = bindWarning(config.host);
+const warning = bindWarning(config.host, config.port);
 if (warning) console.warn(`⚠ ${warning}`);
 for (const note of startupNotes(config)) console.warn(`⚠ ${note}`);
 

@@ -29,7 +29,7 @@ export interface AdminSecrets {
  *
  * ただし `verifySameOrigin` は鍵の有無に関わらず必ず通す。
  * これが無いと、家族が見ている無関係な Web ページから
- * `localhost:8080` へ設定変更を送り込める。
+ * `localhost:9801` へ設定変更を送り込める。
  */
 export function isLocked(secrets: AdminSecrets): boolean {
   return secrets.adminPassword.length > 0;

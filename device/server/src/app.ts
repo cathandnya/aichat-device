@@ -112,7 +112,7 @@ export function createApp(config: Config): Hono {
   // --- 管理UI（パスワード + Cookie セッション） ---
   //
   // 127.0.0.1 でしか待ち受けないので、外からは届かない。
-  // 手元の機械から開きたいときは ssh -L 8080:127.0.0.1:8080。
+  // 手元の機械から開きたいときは ssh -L 9801:127.0.0.1:9801。
   app.get("/admin", (c) => handleAdminRoot(c.req.raw, adminDeps));
   app.get("/admin/", (c) => handleAdminRoot(c.req.raw, adminDeps));
   app.post("/admin/login", (c) => handleAdminLogin(c.req.raw, adminDeps));

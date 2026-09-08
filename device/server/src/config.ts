@@ -17,6 +17,12 @@ import { resolveSecret } from "./secrets.ts";
 export const MODES = ["stub", "live"] as const;
 export type Mode = (typeof MODES)[number];
 
+/**
+ * `PORT` が無いときの待ち受け先。**`.env.example` と同じ値にしておく。**
+ * ずれていると、案内した転送先に誰も居ないということが起きる。
+ */
+export const DEFAULT_PORT = 9801;
+
 export interface Config {
   mode: Mode;
   host: string;
@@ -129,7 +135,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // 動かしてから 401 で気づくことになるのでここで止める。
   //
   // OPENAI_API_KEY は要求しない。音声認識に OpenAI を選んだときだけ
-  // 必要で、既定の Gemini なら無くてよいため。
+  // 必要で、既定の macOS の音声認識（apple-speech）なら無くてよいため。
   if (mode === "live") {
     if (!anthropicApiKey && !geminiApiKey) {
       throw new Error(
@@ -145,7 +151,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
-  const port = Number(env.PORT ?? 8080);
+  const port = Number(env.PORT ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`PORT の値が不正です: ${env.PORT}`);
   }
@@ -193,15 +199,18 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
  * 動かず、HTTP で secure context 扱いになるのは localhost / 127.0.0.1 だけ。
  * LAN の IP で開くとマイクがそもそも使えない。
  */
-export function bindWarning(host: string): string | null {
+export function bindWarning(host: string, port?: number): string | null {
   if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
     return null;
   }
+  // **転送先は実際に待ち受けているポート。** 決め打ちにすると、
+  // PORT を変えている人に届かない案内になる。
+  const p = port ?? DEFAULT_PORT;
   return (
     `HOST=${host} で待ち受けています。/api/* は認証を持たないので、` +
     "同じネットワークの誰でも AI を呼べます（課金はこちら持ち）。" +
     "またブラウザは localhost 以外の HTTP ではマイクを使えません。" +
-    "遠隔から使いたいときは ssh -L 8080:127.0.0.1:8080 を使ってください。"
+    `遠隔から使いたいときは ssh -L ${p}:127.0.0.1:${p} を使ってください。`
   );
 }
 
