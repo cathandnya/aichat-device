@@ -7,10 +7,9 @@
 デバイス側は「マイクを送る・音を鳴らす・文字を描く」だけで、機械学習を載せない
 （[06](docs/06-device-implementation.md)）。
 
-サーバーは Mac に置いたままにする。**Raspberry Pi へ「移す」構成ではない。**
-既定の音声認識が macOS の SpeechAnalyzer で、実測で一番速く（0.14秒）正確で、
-音声も家の外に出ない。デバイス（**Echo Spot 初代に LineageOS を入れたもの**）は
-端末として繋ぐ。
+**サーバーは Mac に置いたままにする。** 既定の音声認識が macOS の
+SpeechAnalyzer で、実測で一番速く（0.14秒）正確で、音声も家の外に出ない。
+デバイス（**Echo Spot 初代に LineageOS を入れたもの**）は端末として繋ぐ。
 
 ## 構成
 

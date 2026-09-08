@@ -3,7 +3,7 @@
 ## 全体構成
 
 ```
-[端末]  いまは Mac のブラウザ（device/web）。将来は小さな箱
+[端末]  実機（device/android）＝ Echo Spot ／ Mac のブラウザ（device/web）
   getUserMedia ─▶ AudioWorklet(80ms) ─▶ WebSocket /ws にそのまま流す
       ◀── JSON     {state, question, answer, sources} ─▶ 画面に描く
       ◀── バイナリ  読み上げの WAV                    ─▶ WebAudio で鳴らす
@@ -19,7 +19,7 @@
 
 **判断も推論もサーバーに集める。** 端末は「マイクを送る・音を鳴らす・文字を描く」
 だけで、機械学習を載せない（[06](06-device-implementation.md)）。
-サーバーは **Mac に置いたままにする**。Raspberry Pi へ移す構成ではない。
+サーバーは **Mac に置いたままにする**（[04](04-roadmap.md) の「変更の記録」）。
 
 > **ブラウザ側の HTTP の経路は消した。** 以前は「ボタンを押して話す」経路があり、
 > 状態も文の切り出しも読み上げもブラウザ側に二重にあった。実機にボタンは無く、
@@ -385,7 +385,7 @@ loop:
 ```
 
 Python なら 150 行程度。候補のハードと描画の選定は
-[06](06-device-implementation.md)（Pi Zero 2 W / ESP32-S3 / Pi 4）。
+[06](06-device-implementation.md)。
 
 いまはこの役をブラウザ（`device/web`）が務めている。
 
@@ -399,7 +399,7 @@ cd device/web    && npm run dev        # https://aichat.local:9800
 | 項目 | 決定 |
 |---|---|
 | 置き場所 | **サーバーは Mac に据え置く。** 端末は繋ぐだけで、判断を持たない |
-| ハード（端末） | 未定。[06](06-device-implementation.md) で Pi Zero 2 W / ESP32-S3 / Pi 4 を比較中。**Pi 5 + Touch Display 2 は不採用**（推論が載らず要求が下がったため） |
+| ハード（端末） | **Echo Spot 初代に LineageOS を入れたもの**（[06](06-device-implementation.md)）。推論を載せないと決めたので、端末に性能は要らない |
 | 端末との口 | **WebSocket `/ws`**。バイナリのフレームを送り、JSON と WAV を受ける |
 | サーバー | Node 22 + Hono **1つだけ**。鍵を持ち、AI を直接呼ぶ。Cloudflare Worker は廃止 |
 | フロント | ブラウザ（Vite + 素の TypeScript）。いまは端末の代役 |

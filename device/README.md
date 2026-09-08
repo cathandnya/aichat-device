@@ -2,7 +2,7 @@
 
 デバイス側。**サーバーは Mac に置く。** 既定の音声認識（macOS の SpeechAnalyzer）が
 Mac でしか動かないうえ、ウェイクワードの判定もここで回すため。
-将来つなぐ小さな箱は端末に徹し、判断は持たない（[../docs/06](../docs/06-device-implementation.md)）。
+端末（実機・ブラウザとも）は端末に徹し、判断は持たない（[../docs/06](../docs/06-device-implementation.md)）。
 
 ```
 device/
@@ -285,7 +285,7 @@ cd ../server && npm start        # dist があれば画面もここが配る（�
 `/ws` にバイナリのフレーム（16kHz mono 16bit LE、80ms）を流し、
 返ってくる JSON とバイナリを画面と音に出すだけ。**判断は一切しない。**
 取り決めは `server/src/ws/protocol.ts`。実装案は
-[../docs/06](../docs/06-device-implementation.md)（Pi Zero 2 W / ESP32-S3 / Pi 4 が候補）。
+[../docs/06](../docs/06-device-implementation.md)。
 
 **`HOST` を LAN に開くことになるので、そのときは `/api/*` に認証が要る。**
 いまは 127.0.0.1 でしか待ち受けないことだけが守りになっている。
