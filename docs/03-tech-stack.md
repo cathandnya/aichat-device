@@ -111,8 +111,8 @@
 | ERLE | 3dB 台 | **8.7 → 17.0 → 14.7dB** |
 | 自分のウェイクワードで自己起動 | **する** | **0回**（3試行） |
 
-引く量は 3.0 倍・床 2% と強めに倒してある。**下流は STT とウェイク
-ワード判定であって人の耳ではない。**
+引く量は 2.0 倍・床 8% と強めに倒してある（`aec_jni.c` の `keep`）。
+**下流は STT とウェイクワード判定であって人の耳ではない。**
 
 **測り方に注意。** ERLE の数値ではなく「読み上げ中に自分の声が文字に
 なるか」が合格条件。しかも**読み上げの中身にウェイクワードを入れて
@@ -120,7 +120,7 @@
 「自己起動 0 回」と読むと誤る（実際に一度そう誤った）。
 `AICHAT_AEC_PROBE=1` と `POST /api/aec-test` がその試験用。
 
-## 道具（function calling）— タイマー
+## 3. 道具（function calling）— タイマー
 
 `device/server/src/ai/chat.ts` の `geminiWithTools`。**Gemini だけ。**
 Claude は `extractClaude` が `text_delta` しか見ていないので、
@@ -153,7 +153,7 @@ Claude は `extractClaude` が `text_delta` しか見ていないので、
 差し替えられる。**いまは無音検出もサーバー側**（`server/src/audio/endpoint.ts`）
 なので、差し替え先も Node で動くものを選ぶ。
 
-## 3. 音声認識（STT）
+## 4. 音声認識（STT）
 
 **既定は macOS の音声認識（SpeechAnalyzer）。** 実測で一番速くて正確で、
 音声が家の外に出ず、課金も無い。VOICEVOX と同じく別プロセスとして立てる。
@@ -235,7 +235,7 @@ ad-hoc 署名・`.app` バンドル化・`/tmp` の外への移動、いずれ�
 **ブラウザの `SpeechRecognition`（Web Speech API）は使わない。**
 音声を Google のサーバーに送るので、プライバシー要件と噛み合わない。
 
-## 4. 読み上げ（TTS）— ここが一番の落とし穴
+## 5. 読み上げ（TTS）— ここが一番の落とし穴
 
 **本命は VOICEVOX。`speechSynthesis` は動作確認の代役に留める。**
 
@@ -318,7 +318,7 @@ docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 > **再生が生成に追いつかれて途切れる**。Apple Silicon で 0.40〜0.82x なので余裕がある。
 > VOICEVOX を非力な機械へ移すとここが崩れるため、**読み上げもサーバーに置いたままにする。**
 
-## 5. ウェイクワード — **連続 ASR + 文字列一致**
+## 6. ウェイクワード — **連続 ASR + 文字列一致**
 
 **専用モデルの学習は要らない。** 音声がサーバーに来ているので、
 **既定の音声認識を短い窓で回し続け、書き起こしに語が出たら起動する**
@@ -342,7 +342,7 @@ docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 日本語の既製モデルは無いので VOICEVOX で合成して学習させることになるが、
 **サーバー側で動かすので端末の実装は一切変わらない。**
 
-## 6. サーバーと確認用の画面
+## 7. サーバーと確認用の画面
 
 | 層 | 選定 | 理由 |
 |---|---|---|
@@ -356,7 +356,7 @@ docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 | 設定の保存 | `device/server/data/config.json` | 一時ファイル → rename で書くので、電源が落ちても壊れない |
 | チャットの保存 | `device/server/data/chats/`（1チャット1ファイル） | [07](07-chat-design.md)。権限 0600・件数に上限 |
 
-## 7. 端末側ソフト
+## 8. 端末側ソフト
 
 **推論が載らないので要求が低い。** 責務は3つだけ。
 
