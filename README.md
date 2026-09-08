@@ -1,7 +1,6 @@
 # aichat-device
 
 家に置いて話しかけると答える、Echo Show 風の据え置きデバイス。
-`../aichat`（家族向けの AI チャットアプリ）のバックエンドを土台に、デバイス専用に作り直したもの。
 
 **判断も推論もローカルサーバーに集める。デバイスは端末に徹する。**
 ウェイクワードの判定・音声認識・AI の呼び出し・読み上げは、すべてサーバーが行う。
@@ -16,7 +15,7 @@
 ## 構成
 
 ```
-[端末]  いまは Mac のブラウザ（device/web）。将来は小さな箱
+[端末]  実機（device/android）＝ Echo Spot ／ Mac のブラウザ（device/web）
    マイク ────80ms のフレームを常時────▶ ┐
    画面    ◀───状態・文字───────────────  │  WebSocket /ws
    スピーカー ◀─読み上げの WAV──────────  │
@@ -39,9 +38,9 @@
 届いた状態を描いて音を鳴らすだけ。
 
 **端末は `/ws?device=<id>` で名乗る。** 会話を継ぐ相手は同じ端末のものだけに
-なるので、居間と寝室に1台ずつ置いても文脈が混ざらない。ブラウザは
-`localStorage` に `browser-a3f9` を作り、実機は `AICHAT_DEVICE_ID=living` を
-持つ。名乗らなければ「名前のない端末」として1つにまとまる。
+なるので、居間と寝室に1台ずつ置いても文脈が混ざらない。id は端末が自分で作る
+（ブラウザは `localStorage` に `browser-a3f9`、実機は `SharedPreferences` に
+`android-4e21`）。名乗らなければ「名前のない端末」として1つにまとまる。
 
 **履歴もその端末のぶんだけ**（`/history`）。家じゅうを見返すのは
 管理画面（`/admin`）の「すべての端末の履歴を見る」から。
@@ -61,6 +60,9 @@
 |---|---|
 | [device/server/](device/server/) | ローカルサーバー。画面の配信、AI の呼び出し、音声認識、読み上げ、管理UI |
 | [device/web/](device/web/) | 画面。マイクの取り込みと音の再生。WebSocket 経路では**判断はしない** |
+| [device/android/](device/android/) | 実機のアプリ（Kotlin）。Echo Spot に載せる。マイク・音・顔だけ |
+| [device/deploy/](device/deploy/) | 常駐の設定（macOS の LaunchAgent） |
+| [demo/](demo/) | 動画用のデモ音声。VOICEVOX で作って実機に聞かせる |
 | [docs/](docs/) | 設計と経緯。[05](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案、[07](docs/07-chat-design.md) のチャット設計、[08](docs/08-emotion.md) の感情表現、[09](docs/09-echo-spot-jailbreak.md) の Echo Spot の手順 |
 
 ### なぜブラウザから AI を直接叩かないのか
@@ -82,15 +84,29 @@ brew tap Arthur-Ficial/tap && brew install ohr
 ohr --serve --port 8091 --host 127.0.0.1
 #    常駐させるなら device/deploy/macos/ の LaunchAgent
 
-# ローカルサーバー。既定は stub（AI を呼ばない・課金なし）
+# ローカルサーバー（:9801）。既定は stub（AI を呼ばない・課金なし）
 cd device/server && npm ci && cp .env.example .env && npm start
-#    常駐させるなら device/deploy/macos/ の LaunchAgent
-#    （据え置きはこちら。画面も web/dist ごとここが配る）
 
 # 画面。別のターミナルで
 cd device/web && npm ci && npm run dev
 #    → https://aichat.local:9800 を Chrome で開く（HTTPS でないとマイクが使えない）
 ```
+
+**ポートは2つある。** サーバーは **9801** でしか待ち受けない。開発中に開く
+**9800** は Vite で、`/api`・`/admin`・`/ws` を 9801 へ中継している。
+**`npm run dev` を止めると 9800 は消える。**
+
+据え置きで動かすときは Vite を使わず、サーバーに画面ごと配らせる
+（プロセスが1つで済む）。
+
+```bash
+cd device/web && npm run build     # web/dist を作る
+cd ../server && npm start          # → http://127.0.0.1:9801
+```
+
+常駐させるなら [device/deploy/macos/](device/deploy/macos/) の LaunchAgent
+（**中のパスを自分の環境に書き換えてから入れる**。手順は
+[device/README](device/README.md#ログイン時から常駐させるmacos)）。
 
 ### モード
 
@@ -99,18 +115,27 @@ cd device/web && npm ci && npm run dev
 | `stub`（既定） | AI を呼ばず固定の応答を返す。UI と音声の検証用 | なし |
 | `live` | 本物の AI を呼ぶ | **あり** |
 
-`stub` では `?scenario=long|slow|error|empty|truncated` でエラー側の画面も確かめられる。
-**エラーの見え方は本番では狙って再現できない**ので、作り込むならここ。
+`stub` には `?scenario=long|slow|error|empty|truncated` という口もあるが、
+**いまは `POST /api/chat` を直に叩いたときだけ効く。** 画面が使う `/ws` の経路は
+常に `normal` を返すので、**エラー側の見え方はまだ画面で確かめられない**
+（[docs/04](docs/04-roadmap.md) に残してある）。
 
 ### 設定
 
 モデル・システムプロンプト・回答の長さ・音声認識モデルは **`/admin` から** 変える。
 画面側に設定は無い。
 
-`/admin` は 127.0.0.1 でしか開けない。別の機械から開きたいときは SSH のポート転送。
+**`/admin` を守っているのは待ち受けアドレス**（`HOST=127.0.0.1`）で、
+アクセス元の検査ではない。`HOST` を変えれば LAN からも開く。
+別の機械から開きたいときは SSH のポート転送を使う。
 **転送先はサーバーを動かしている Mac。**
 
 ```bash
+# 据え置き（Vite なし。サーバーが画面ごと配る）
+ssh -L 9801:127.0.0.1:9801 <ユーザー>@<サーバーの Mac>.local
+# → http://127.0.0.1:9801/admin
+
+# 開発中（別プロセスで npm run dev を動かしているとき）
 ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
 # → https://aichat.local:9800/admin
 ```
@@ -180,9 +205,28 @@ VOICEVOX は Docker でなく[公式アプリ](https://voicevox.hiroshiba.jp/)�
 [CLAUDE.md](CLAUDE.md) にまとめてある。
 
 - **Claude / Gemini の API を実際に呼んで動作確認しない。** 課金が発生する。
-  検証はユーザーが自分の判断で行う（`../aichat/CLAUDE.md` と同じ）。
+  検証はユーザーが自分の判断で行う。
   テストは偽の上流を立てて本物のコードを通す
 - 設定はサーバー側で完結させる。デバイス側に設定画面は置かない
 - `device/server` と `device/web` は独立した npm プロジェクト
 - **サーバーは Mac に残す。** デバイスを作るときに書くのは端末側だけで、
   判断のロジックはサーバーから動かさない（[06](docs/06-device-implementation.md)）
+
+## ライセンス
+
+このリポジトリのコードは [MIT](LICENSE)。
+
+**同梱・利用しているもの**は、それぞれの権利者のものでライセンスも別。
+
+| | |
+|---|---|
+| [speexdsp](https://gitlab.xiph.org/xiph/speexdsp)（エコー消去） | ソースを同梱している（`device/android/app/src/main/cpp/speexdsp/`）。BSD-3-Clause。[COPYING](device/android/app/src/main/cpp/speexdsp/COPYING) がそれ |
+| [VOICEVOX](https://voicevox.hiroshiba.jp/)（読み上げ） | 呼ぶだけで同梱していない。**音声の利用規約は各話者のものに従う** |
+| [ohr](https://github.com/Arthur-Ficial/ohr) / [whisper.cpp](https://github.com/ggerganov/whisper.cpp)（音声認識） | 呼ぶだけで同梱していない |
+
+**立ち絵と効果音は入っていない。** 配布元の規約を確かめていないため
+`.gitignore` してある（[置き方](device/web/public/character/README.md)）。
+無くても会話は動く。
+
+[docs/09](docs/09-echo-spot-jailbreak.md) は Amazon の端末を改造する手順で、
+**失敗すると復旧できない**。やるかどうかは自分で判断すること。

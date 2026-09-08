@@ -7,7 +7,7 @@ YouTube の動画で、端末に話しかけるところを流すための音声
 
 端末は「ずんだもん」に気づくと**効果音**（`wake.mp3`, 約 1.0 秒）を鳴らす。
 **その間もマイクは録り続けている** —
-[MainActivity.kt](../device/android/app/src/main/kotlin/jp/local/aichat/device/MainActivity.kt#L280-L288)
+[MainActivity.kt](../device/android/app/src/main/kotlin/jp/local/aichat/device/MainActivity.kt)
 の `Event.Wake` は鳴らすだけで、聞き取りを止めない。
 続けて喋ると**用件の頭が効果音と重なる**ので、鳴り終わってから用件を鳴らす。
 
@@ -52,16 +52,17 @@ PORT=9000 ./demo/serve.sh
 
 ## 会話を終える言葉
 
-追い質問の窓（8 秒）が開いている間に言うと、**AI を呼ばずにその場で閉じる**
-（[session.ts](../device/server/src/ws/session.ts#L712-L718)）。
-呼びかけは要らないので、この 4 つには `-full` を作っていない。
-頁の上では**枠が破線**になっている。
+追い質問の窓（既定 8 秒）が開いている間に言う。呼びかけは要らないので、
+この 4 つには `-full` を作っていない。頁の上では**枠が破線**になっている。
 
-既定は「ありがとう」「おわり」「もういい」「またね」。判定は部分一致なので
-「もういいよ」でも当たる。語そのものは admin の「追い質問 › 終了語」で変える。
+**終わりを決めるのは AI。** 文字列一致で黙って閉じるのではなく、
+AI が `end_chat` 道具を呼んで終わりを伝える。**別れの挨拶を言ってから**
+閉じるので、鳴らすと返事が返ってくる（[session.ts](../device/server/src/ws/session.ts)
+の「終わりを決めるのは AI」）。
 
-**「ありがとう」は会話の途中にも出る**ので、意図せず終わるようなら
-admin で減らす（admin の注意書きのとおり）。
+そのため**この 4 つも AI を呼ぶ**（`live` なら課金される）。
+以前あった「終了語の文字列一致」と、その admin 設定は廃止した
+（[docs/04](../docs/04-roadmap.md)）。
 
 ## 作り直す
 

@@ -4,13 +4,13 @@
 
 ### ローカルサーバー（`device/server/`）
 - [x] Hono による `/api/chat`（SSE） `/api/stt` `/api/config` `/api/tts` `/api/health`
-- [x] Claude / Gemini の呼び出しと SSE の正規化（`../aichat/worker` から移設）
+- [x] Claude / Gemini の呼び出しと SSE の正規化（Cloudflare Worker から移設）
 - [x] 音声認識。Workers AI をやめ、**既定は macOS の SpeechAnalyzer（`ohr`）**。
       whisper とクラウド（Gemini / OpenAI）にも `/admin` から切り替えられる
 - [x] 管理UI（パスワード + Cookie セッション）。設定は `data/config.json` に保存
 - [x] 鍵を OS の鍵束から読めるように（`keychain:サービス/項目`）
 - [x] 2モード（`stub` / `live`）
-- [x] テスト 105 件（鍵の扱い・逐次配信・**切断で上流も止まる**・設定の保存・ウェイクワード・チャットの保存・文の切り出し・音声の長さ）
+- [x] テスト 179 件（鍵の扱い・逐次配信・**切断で上流も止まる**・設定の保存・ウェイクワード・チャットの保存・文の切り出し・音声の長さ）
 
 ### 画面（`device/web/`）
 - [x] 録音（AudioWorklet・16kHz mono WAV）
@@ -21,7 +21,7 @@
 - [x] **声を受け付けていることを、離れていても分かるように**
       （画面の縁が光る・状態の文字が2倍・声の大きさが動く）
 - [x] ウェイクワードに気づいたら音を鳴らす（`public/wake.mp3`）
-- [x] テスト 9 件（WAV の組み立て。判定のロジックはサーバー側へ移した）
+- [x] テスト 19 件（WAV の組み立て。判定のロジックはサーバー側へ移した）
 
 ### 音声をサーバーに流す構成へ（`ws/`）
 - [x] WebSocket `/ws`。音声のフレームを受け、状態・文字・読み上げの WAV を返す
