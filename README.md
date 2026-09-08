@@ -89,12 +89,17 @@ cd device/server && npm ci && cp .env.example .env && npm start
 
 # 画面。別のターミナルで
 cd device/web && npm ci && npm run dev
-#    → https://aichat.local:9800 を Chrome で開く（HTTPS でないとマイクが使えない）
+#    → http://127.0.0.1:9800 を Chrome で開く
 ```
 
 **ポートは2つある。** サーバーは **9801** でしか待ち受けない。開発中に開く
 **9800** は Vite で、`/api`・`/admin`・`/ws` を 9801 へ中継している。
 **`npm run dev` を止めると 9800 は消える。**
+
+**`127.0.0.1` で開くこと。** `getUserMedia` は secure context でしか動かず、
+HTTP でそれを満たすのは `localhost` / `127.0.0.1` だけ。**他の機械から開くには
+HTTPS が要る**ので、そのときは `npm run dev:lan`（自己署名の証明書が付き、
+`https://<この Mac>.local:9800` で開ける）。
 
 据え置きで動かすときは Vite を使わず、サーバーに画面ごと配らせる
 （プロセスが1つで済む）。
@@ -136,7 +141,7 @@ ssh -L 9801:127.0.0.1:9801 <ユーザー>@<サーバーの Mac>.local
 
 # 開発中（別プロセスで npm run dev を動かしているとき）
 ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
-# → https://aichat.local:9800/admin
+# → http://127.0.0.1:9800/admin
 ```
 
 ### 家の情報

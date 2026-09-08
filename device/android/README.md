@@ -13,7 +13,7 @@ Echo Spot 初代に LineageOS 18.1 を入れたものに載せる。
 |---|---|---|
 | **secure context** | `getUserMedia` に HTTPS が要る。自己署名を通すか Chrome のフラグを立てる | 無関係 |
 | **キオスク化** | 別のアプリ（Fully Kiosk 等）で全画面・自動起動・スリープ抑止 | `FLAG_KEEP_SCREEN_ON` と `BOOT_COMPLETED` |
-| **エコーキャンセル** | ブラウザ任せ | `AcousticEchoCanceler` を**明示的に付けられる** |
+| **エコーキャンセル** | ブラウザ任せ | **自前で書ける**（この端末はハードの AEC を持たない。下記） |
 
 `device/web` は**手元で内容を読む画面**として残る（文字も履歴もそちらにある）。
 
@@ -141,8 +141,10 @@ adb shell am start -n jp.local.aichat.device/.MainActivity \
 ## 実機で最初に見ること
 
 1. **マイクが録れるか。** ここが駄目なら計画ごと止まる
-2. **`AcousticEchoCanceler` が有効になるか。** `adb logcat -s aichat` に
-   「エコーキャンセル: true/false」が出る。**true なら読み上げ中の割り込みに進める**
+2. **エコー消去が効いているか。** `adb logcat -s aichat` に
+   「エコーキャンセル: ハード=… ソフト=…」が出る。**ハードは false**
+   （MT8163 に載っていない）。効かせているのは**ソフトのほう**で、
+   合格条件は「読み上げ中に自分の声で起動しないか」
 3. 顔と縁の光が 480×480 の丸に収まるか
 
 ## 依存

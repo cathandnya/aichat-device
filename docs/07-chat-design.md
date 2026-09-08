@@ -190,7 +190,8 @@ id は3種類に分かれる。**空文字と `unknown` を混ぜないのが肝
 | `GET` | `/api/chats/:id` | 1件の全文 |
 | `POST` | `/api/chats` | 新規チャットを作り、id を返す |
 | `DELETE` | `/api/chats/:id` | 消す |
-| `POST` | `/api/chat` | **`chatId` を受けるようにする。** 無ければ新規に作る |
+| `POST` | `/api/chats/:id/end` | チャットを閉じる |
+| `POST` | `/api/chat` | `chatId` を受ける。無ければ新規に作る |
 
 WebSocket は `/ws?device=<id>`。**検証はここ1箇所だけ**で行い、通った値は
 「保存してよい・画面に出してよい・ファイル名に入れてよい」ものとして下流へ渡す
@@ -244,7 +245,7 @@ WebSocket は `/ws?device=<id>`。**検証はここ1箇所だけ**で行い、�
 
 #### ウェイクワードに気づいたら音を鳴らす
 
-`resource/wake.mp3`（`device/web/public/wake.mp3`）。呼んでから聞き取りが
+`device/web/public/wake.mp3`。呼んでから聞き取りが
 始まるまで無反応だと、**呼んだ人はもう一度呼んでしまう。**
 
 サーバーは `startChat()` で `{ type: "wake" }` を送る。**状態の遷移では

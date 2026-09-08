@@ -20,9 +20,12 @@ device/
 
 | | URL |
 |---|---|
-| 話しかける画面 | `https://aichat.local:9800` |
-| 管理画面 | `https://aichat.local:9800/admin` |
-| ウェイクワードの試験 | `https://aichat.local:9800/wake.html` |
+| 話しかける画面 | `http://127.0.0.1:9800` |
+| 管理画面 | `http://127.0.0.1:9800/admin` |
+| ウェイクワードの試験 | `http://127.0.0.1:9800/wake.html` |
+
+**`127.0.0.1` で開く。** `npm run dev` は HTTP で待ち受ける。
+他の機械から開くときだけ HTTPS が要る（下の「別の端末から開く」）。
 
 ローカルサーバー（9801）は 127.0.0.1 でしか待ち受けず、外からは届かない。
 外の端末は Vite（9800）経由でのみ `/api` と `/admin` に届く。
@@ -40,12 +43,12 @@ cd server && npm ci && cp .env.example .env && npm start
 cd web && npm ci && npm run dev
 ```
 
-**`https://aichat.local:9800` で開くこと。** `getUserMedia` は secure context でしか
+**`http://127.0.0.1:9800` で開くこと。** `getUserMedia` は secure context でしか
 動かず、HTTP で secure context 扱いになるのは「ホスト名が `localhost` /
 `*.localhost`」か「ループバックの **IP リテラル**（`127.0.0.1` / `::1`）」のときだけ。
 
 判定は名前解決の結果ではなく**ホスト名の文字列**で行われる。`aichat.local` が
-127.0.0.1 に解決されても対象外なので、`http://aichat.local:5173` では
+127.0.0.1 に解決されても対象外なので、`http://aichat.local:9800` では
 マイクが使えない。
 
 ## 別の端末から開く
@@ -71,7 +74,7 @@ cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
 >
 > ```bash
 > ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
-> # → 手元で https://aichat.local:9800
+> # → 手元で http://127.0.0.1:9800
 > ```
 >
 > **9800 は Vite（`npm run dev`）が居るときだけ。** 据え置き
@@ -203,7 +206,7 @@ docker run -d --name voicevox -p 50021:50021 --restart unless-stopped \
 cd server && AICHAT_MODE=live npm start
 
 # 4. 画面
-cd web && npm run dev      # → https://aichat.local:9800
+cd web && npm run dev      # → http://127.0.0.1:9800
 ```
 
 起動時に**設定と鍵の食い違いを警告する**。たとえば「設定は claude だが
@@ -227,7 +230,7 @@ cd web && npm run dev      # → https://aichat.local:9800
 
 ## ウェイクワードを実マイクで試す
 
-`https://aichat.local:9800/wake.html`
+`http://127.0.0.1:9800/wake.html`
 
 **AI を呼ばない。** 判定だけを行う経路（`/ws?mode=wake`）に繋ぐので、
 チャットも作らず読み上げもしない。音声認識は手元なので費用はゼロ。
@@ -248,7 +251,7 @@ cd web && npm run dev      # → https://aichat.local:9800
 
 ## 設定を変える
 
-`/admin`（`https://aichat.local:9800/admin`）から。モデル・システムプロンプト・
+`/admin`（`http://127.0.0.1:9800/admin`）から。モデル・システムプロンプト・
 回答の長さ・音声認識モデルを決める。画面側に設定は無い。
 
 **守っているのは待ち受けアドレス**（`HOST=127.0.0.1`）で、アクセス元の

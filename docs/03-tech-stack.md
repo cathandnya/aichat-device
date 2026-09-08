@@ -79,6 +79,11 @@
 | 諦める | 声が1秒無ければ | 効果音だけ鳴らして追い質問の窓を開く（返事はしない。アレクサに合わせた） |
 | 打ち切り | 20 秒 | 音声の上限（約31秒）に余裕を持たせる |
 
+**テレビやエアコンの音がある部屋では RMS では無理。** 入り口を
+「80ms の塊を流し込む」形にしてあるので、Silero VAD（`@ricky0123/vad-web`）に
+差し替えられる。**無音検出はサーバー側**（`server/src/audio/endpoint.ts`）なので、
+差し替え先も Node で動くものを選ぶ。
+
 ### エコーキャンセル — **帯域ごとに抑える**
 
 `device/android/app/src/main/cpp/aec_jni.c`。**端末側に置いてある。**
@@ -147,11 +152,6 @@ Claude は `extractClaude` が `text_delta` しか見ていないので、
 > **`/admin` の systemPrompt に「タイマーはできません」と書いてあると
 > 動かない。** 宣言より利用者のプロンプトが勝つ。設定ファイルなので
 > コードでは直せない（**サーバーごとに手で直す**）。
-
-テレビやエアコンの音がある部屋では RMS では無理。入り口を
-「80ms の塊を流し込む」形にしてあるので、Silero VAD（`@ricky0123/vad-web`）に
-差し替えられる。**いまは無音検出もサーバー側**（`server/src/audio/endpoint.ts`）
-なので、差し替え先も Node で動くものを選ぶ。
 
 ## 4. 音声認識（STT）
 
@@ -363,18 +363,17 @@ docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
 ```
 loop:
   マイクから 80ms 読む → WebSocket で送る
-  受け取る: {状態, 文字} → 画面に描く
+  受け取る: {状態} → 顔と色を切り替える
   受け取る: 音声 → 鳴らす
 ```
 
-Python なら 150 行程度。候補のハードと描画の選定は
-[06](06-device-implementation.md)。
-
-いまはこの役をブラウザ（`device/web`）が務めている。
+実機は Kotlin のネイティブアプリ（`device/android`）。依存は OkHttp だけで、
+画面は `View` を1枚に描いている（[06](06-device-implementation.md)）。
+手元で試すときは同じ役をブラウザ（`device/web`）が務める。
 
 ```bash
 cd device/server && npm start          # 既定は stub（AI を呼ばない）
-cd device/web    && npm run dev        # https://aichat.local:9800
+cd device/web    && npm run dev        # http://127.0.0.1:9800
 ```
 
 ## 決定事項まとめ
