@@ -9,6 +9,7 @@ device/
 ├── server/   ローカルサーバー（Node 22 + Hono）。判断はすべてここ
 │              ウェイクワード判定・音声認識・AI・読み上げ・チャットの保存・/admin
 ├── web/      画面（Vite + 素の TypeScript）。マイクの取り込みと音の再生
+├── android/  実機のアプリ（Kotlin）。Echo Spot に載せる。判断は持たない
 └── deploy/   常駐の設定（macOS の LaunchAgent）
 ```
 
@@ -71,6 +72,10 @@ cd web && npm run dev:lan     # 0.0.0.0 に HTTPS で待ち受ける
 > ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
 > # → 手元で https://aichat.local:9800
 > ```
+>
+> **9800 は Vite（`npm run dev`）が居るときだけ。** 据え置き
+> （[「据え置きで動かす」](#据え置きで動かす)）は Vite を止めるので、
+> 転送先は **9801**（サーバーが画面ごと配る）。
 
 読み上げには VOICEVOX が要る。
 
@@ -111,11 +116,21 @@ plist は `deploy/macos/` にある。
 
 ### サーバー
 
+**plist の中のパスは自分の環境に書き換える。** plist は `~` も `$HOME` も
+展開しないので、置いてあるプレースホルダ（`/USER/` と `/PATH/TO/`）を
+実際の値に差し替えてから入れる。**書き換えずに入れると起動しない。**
+
 ```bash
 mkdir -p ~/Library/Logs/aichat-device
-cp deploy/macos/jp.local.aichat-device.server.plist ~/Library/LaunchAgents/
+# リポジトリの根で走らせる
+sed -e "s|/USER/|/$USER/|g" -e "s|/PATH/TO/aichat-device|$PWD|g" \
+  device/deploy/macos/jp.local.aichat-device.server.plist \
+  > ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
 launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
 ```
+
+`node` の位置は環境で違う。`which node` で確かめて直に書く
+（上の `sed` は fnm の既定エイリアスを前提にしている）。
 
 **入れる前に手で起こしたサーバーを落とす**（`lsof -iTCP:9801 -P`）。
 残っていると後から来た方が `EADDRINUSE` で落ち、`KeepAlive` が
@@ -235,10 +250,16 @@ cd web && npm run dev      # → https://aichat.local:9800
 `/admin`（`https://aichat.local:9800/admin`）から。モデル・システムプロンプト・
 回答の長さ・音声認識モデルを決める。画面側に設定は無い。
 
-127.0.0.1 でしか開けないので、別の機械から開きたいときは SSH のポート転送。
-**転送先はサーバーを動かしている Mac。**
+**守っているのは待ち受けアドレス**（`HOST=127.0.0.1`）で、アクセス元の
+検査ではない。`HOST` を変えれば LAN からも開く。別の機械から開きたいときは
+SSH のポート転送。**転送先はサーバーを動かしている Mac。**
 
 ```bash
+# 据え置き（Vite なし。サーバーが画面ごと配る）
+ssh -L 9801:127.0.0.1:9801 <ユーザー>@<サーバーの Mac>.local
+# → http://127.0.0.1:9801/admin
+
+# 開発中（別プロセスで npm run dev を動かしているとき）
 ssh -L 9800:127.0.0.1:9800 <ユーザー>@<サーバーの Mac>.local
 ```
 

@@ -6,10 +6,19 @@
   ohr と同じく LaunchAgent（ユーザーごと）にしている。この機械は
   自動ログインするので、ログイン時に立ち上がれば足りる。
 
+  **/USER/ と /PATH/TO/ は自分の環境に書き換えること。** plist は変数を
+  展開しないので、`~` や `$HOME` を書いても届かない。**書き換えないと
+  launchd はこれを起動できない。**
+
   導入:
     mkdir -p ~/Library/Logs/aichat-device
-    cp device/deploy/macos/jp.local.aichat-device.server.plist ~/Library/LaunchAgents/
+    sed -e "s|/USER/|/$USER/|g" -e "s|/PATH/TO/aichat-device|$PWD|g" \
+      device/deploy/macos/jp.local.aichat-device.server.plist \
+      > ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
     launchctl bootstrap gui/$UID ~/Library/LaunchAgents/jp.local.aichat-device.server.plist
+
+  （`$PWD` はリポジトリの根で走らせた場合。`node` の位置は `which node` で
+  確かめて直に書く。fnm を使っていないなら `/opt/homebrew/bin/node` など）
 
   停止・削除:
     launchctl bootout gui/$UID/jp.local.aichat-device.server
