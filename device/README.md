@@ -2,14 +2,15 @@
 
 デバイス側。**サーバーは Mac に置く。** 既定の音声認識（macOS の SpeechAnalyzer）が
 Mac でしか動かないうえ、ウェイクワードの判定もここで回すため。
-端末（実機・ブラウザとも）は端末に徹し、判断は持たない（[../docs/06](../docs/06-device-implementation.md)）。
+端末（Echo Spot）は端末に徹し、判断は持たない（[../docs/06](../docs/06-device-implementation.md)）。
+**ブラウザの画面は確認用**で、手元で内容を読んだり試したりするためのもの。
 
 ```
 device/
 ├── server/   ローカルサーバー（Node 22 + Hono）。判断はすべてここ
 │              ウェイクワード判定・音声認識・AI・読み上げ・チャットの保存・/admin
-├── web/      画面（Vite + 素の TypeScript）。マイクの取り込みと音の再生
 ├── android/  実機のアプリ（Kotlin）。Echo Spot に載せる。判断は持たない
+├── web/      確認用の画面（Vite + 素の TypeScript）。手元で読む・試す
 └── deploy/   常駐の設定（macOS の LaunchAgent）
 ```
 

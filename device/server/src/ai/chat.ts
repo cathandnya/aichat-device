@@ -12,10 +12,8 @@
  *    Claude と Gemini は SSE の形が全く違うため、その差をここで吸収する。
  *    画面側の解析は1つで済み、将来 AI を足しても画面を触らずに済む。
  *
- * もとは Cloudflare Worker で動いていた。ローカルサーバーに移したので、
- * 鍵は Env のバインディングではなく Runtime（.env か OS の鍵束）から来る。
- * Web 標準の fetch / Response / ReadableStream しか使っていないので、
- * 中身はほぼそのまま動く。
+ * 鍵は Runtime（.env か OS の鍵束）から来る。Web 標準の
+ * fetch / Response / ReadableStream しか使っていない。
  */
 
 import Anthropic from "@anthropic-ai/sdk";

@@ -1,13 +1,12 @@
 /**
- * Worker 全体で共有する型定義。
+ * サーバー全体で共有する型定義。
  */
 
 /**
  * AI を呼ぶのに要るもの。
  *
- * もとは Cloudflare の Env（KV と Workers AI のバインディング）だった。
- * ローカルサーバーに移したので、鍵は .env か OS の鍵束（secrets.ts）から、
- * 設定はローカルのファイル（store.ts）から来る。
+ * 鍵は .env か OS の鍵束（secrets.ts）から、設定はローカルのファイル
+ * （store.ts）から来る。
  */
 export interface Runtime {
   anthropicApiKey: string;
@@ -71,9 +70,9 @@ export type ClaudeModel = (typeof CLAUDE_MODELS)[number];
  * | whisper small | 0.86秒 | 6件中1件（オンス→温度） |
  *
  * whisper も残してある。**Apple の音声認識は macOS でしか動かない**ので、
- * サーバーを Mac 以外へ動かすならそちらになる。ただし**いまはサーバーを Mac に
- * 据え置くと決めている**（docs/04 の「変更の記録」）ので、これは逃げ道であって
- * 予定ではない。クラウドの経路は、どちらのサーバーも立てられないときの最後の手段。
+ * サーバーを Mac 以外へ動かすならそちらになる。**サーバーは Mac に置く**
+ * 前提なので、これは逃げ道であって予定ではない。クラウドの経路は、
+ * どちらのサーバーも立てられないときの最後の手段。
  *
  * whisper の `-ac 512` は音声文脈を縮める指定。whisper は入力を 30 秒窓に
  * 詰めて処理するので、短い問いかけでも固定費がかかる。窓を縮めると
@@ -117,9 +116,9 @@ export function isSttModel(value: unknown): value is SttModel {
 export const MAX_AUDIO_BYTES = 1_000_000;
 
 /**
- * Gemini のモデル一覧は静的に持たず、models.list から取得して KV に置く
+ * Gemini のモデル一覧は静的に持たず、models.list から取得して保存する
  * （gemini-models.ts）。Google が短い間隔で新モデルを出すため、
- * コードを直して deploy しないと選べない状態を避ける。
+ * コードを直さないと選べない状態を避ける。
  *
  * 妥当性の検証は **書き込み時のみ**（validatePatch で取得済み一覧と突き合わせる）。
  * 読み出し時は形だけ見る（isModelId）。取得した一覧が一時的に短かっただけで、
@@ -138,7 +137,7 @@ export interface GeminiModelInfo {
   outputTokenLimit: number;
 }
 
-/** KV `gemini-models` の中身。 */
+/** `data/gemini-models.json` の中身。 */
 export interface GeminiModelCatalog {
   models: GeminiModelInfo[];
   /** ISO8601。管理UIに「いつ取得したか」を出す。 */
@@ -466,7 +465,7 @@ export function isContextTurns(value: unknown): value is number {
 
 export const SYSTEM_PROMPT_MAX_LENGTH = 8000;
 
-/** KV に値が無い初回に使う既定値。 */
+/** 保存された設定が無い初回に使う既定値。 */
 export const DEFAULT_CONFIG: AppConfig = {
   version: 0,
   // 据え置きデバイスは「話しかけたらすぐ答える」が第一なので、

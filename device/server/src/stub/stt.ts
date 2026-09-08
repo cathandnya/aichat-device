@@ -1,5 +1,5 @@
 /**
- * stub モードの /api/stt。音声は Workers AI に送らず、固定の文字列を返す。
+ * stub モードの /api/stt。音声を上流に送らず、固定の文字列を返す。
  *
  * `STUB_SAVE_AUDIO=1` のときは受け取った WAV を `tmp/` に保存する。
  * **録音経路のデバッグはこれが一番速い。** 保存したファイルを
@@ -7,8 +7,7 @@
  *     afinfo tmp/xxx.wav        16000Hz / 1ch / 16bit になっているか
  *     open  tmp/xxx.wav         語頭が切れていないか・無音判定が早すぎないか
  *
- * で確かめれば、Workers AI を一度も呼ばずに「ブラウザが正しい音を作れて
- * いるか」を確定できる。
+ * で確かめれば、上流を一度も呼ばずに「正しい音を作れているか」を確定できる。
  */
 
 import { mkdir, writeFile } from "node:fs/promises";

@@ -61,8 +61,6 @@ AI が `end_chat` 道具を呼んで終わりを伝える。**別れの挨拶を
 の「終わりを決めるのは AI」）。
 
 そのため**この 4 つも AI を呼ぶ**（`live` なら課金される）。
-以前あった「終了語の文字列一致」と、その admin 設定は廃止した
-（[docs/04](../docs/04-roadmap.md)）。
 
 ## 作り直す
 
@@ -83,8 +81,7 @@ HOST=http://<VOICEVOX の IP>:50021 ./demo/gen.sh
 
 ## 中身
 
-台本は [10-checklist.md](../docs/10-checklist.md) の確認項目と、
-[session.ts](../device/server/src/ws/session.ts) の道具の並びから採った。
+台本は [session.ts](../device/server/src/ws/session.ts) の道具の並びから採った。
 
 | ファイル | 狙い |
 |---|---|

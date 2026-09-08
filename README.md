@@ -14,7 +14,7 @@ SpeechAnalyzer で、実測で一番速く（0.14秒）正確で、音声も家�
 ## 構成
 
 ```
-[端末]  実機（device/android）＝ Echo Spot ／ Mac のブラウザ（device/web）
+[端末]  Echo Spot（device/android）。確認用に Mac のブラウザ（device/web）
    マイク ────80ms のフレームを常時────▶ ┐
    画面    ◀───状態・文字───────────────  │  WebSocket /ws
    スピーカー ◀─読み上げの WAV──────────  │
@@ -58,11 +58,11 @@ SpeechAnalyzer で、実測で一番速く（0.14秒）正確で、音声も家�
 | ディレクトリ | 中身 |
 |---|---|
 | [device/server/](device/server/) | ローカルサーバー。画面の配信、AI の呼び出し、音声認識、読み上げ、管理UI |
-| [device/web/](device/web/) | 画面。マイクの取り込みと音の再生。WebSocket 経路では**判断はしない** |
-| [device/android/](device/android/) | 実機のアプリ（Kotlin）。Echo Spot に載せる。マイク・音・顔だけ |
+| [device/web/](device/web/) | **確認用の画面。** 手元で内容を読む・試す。判断はしない |
+| [device/android/](device/android/) | **実機のアプリ**（Kotlin）。Echo Spot に載せる。マイク・音・顔だけ |
 | [device/deploy/](device/deploy/) | 常駐の設定（macOS の LaunchAgent） |
 | [demo/](demo/) | 動画用のデモ音声。VOICEVOX で作って実機に聞かせる |
-| [docs/](docs/) | 設計と経緯。[05](docs/05-issues.md) の課題、[06](docs/06-device-implementation.md) のデバイス実装案、[07](docs/07-chat-design.md) のチャット設計、[08](docs/08-emotion.md) の感情表現、[09](docs/09-echo-spot-jailbreak.md) の Echo Spot の手順 |
+| [docs/](docs/) | 設計。[01](docs/01-requirements.md) の要件、[03](docs/03-tech-stack.md) の技術選定、[06](docs/06-device-implementation.md) の端末実装、[07](docs/07-chat-design.md) のチャット設計、[08](docs/08-emotion.md) の感情表現、[09](docs/09-echo-spot-jailbreak.md) の Echo Spot の手順 |
 
 ### なぜブラウザから AI を直接叩かないのか
 
@@ -116,8 +116,7 @@ cd ../server && npm start          # → http://127.0.0.1:9801
 
 `stub` には `?scenario=long|slow|error|empty|truncated` という口もあるが、
 **いまは `POST /api/chat` を直に叩いたときだけ効く。** 画面が使う `/ws` の経路は
-常に `normal` を返すので、**エラー側の見え方はまだ画面で確かめられない**
-（[docs/04](docs/04-roadmap.md) に残してある）。
+常に `normal` を返すので、**エラー側の見え方は画面では確かめられない。**
 
 ### 設定
 

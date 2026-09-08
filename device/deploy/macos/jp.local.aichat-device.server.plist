@@ -79,7 +79,7 @@
   <integer>10</integer>
 
   <!--
-    /tmp ではなくここ。**再起動で消えないため**（docs/05-issues.md G-2）。
+    /tmp ではなくここ。**再起動で消えないため**。
     **回していないので放っておくと太る。**気になったら手で消す。
   -->
   <key>StandardOutPath</key>

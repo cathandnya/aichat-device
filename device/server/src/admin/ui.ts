@@ -42,12 +42,6 @@ import {
   type GeminiModelCatalog,
 } from "../ai/types.ts";
 
-/**
- * 使う AI の選択肢。
- *
- * 「自動」「端末内のみ」は置いていない。据え置きデバイスに端末内モデルは
- * 無く、選べてしまうとその瞬間にデバイスが黙るため。
- */
 /** 管理UI が要るもの。 */
 export interface AdminDeps {
   secrets: AdminSecrets;
@@ -413,7 +407,7 @@ function settingsPage(
          <fieldset style="margin-bottom:0">
            <legend>音声認識のモデル</legend>
            <select name="sttModel">${sttOptions}</select>
-           <p class="hint">デバイスのマイクで拾った音声を文字にするモデル（Workers AI）。日本語の聞き取りが弱いと感じたら切り替えてください。</p>
+           <p class="hint">デバイスのマイクで拾った音声を文字にするモデル。日本語の聞き取りが弱いと感じたら切り替えてください。</p>
          </fieldset>
        </div>
 

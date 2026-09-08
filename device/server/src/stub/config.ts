@@ -1,7 +1,7 @@
 /**
  * stub モードの /api/config。
  *
- * 値は Worker の DEFAULT_CONFIG（worker/src/types.ts）に合わせてある。
+ * 値は `ai/types.ts` の DEFAULT_CONFIG に合わせてある。
  * 画面の表示を確かめるためだけのもの。
  */
 

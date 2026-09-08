@@ -5,11 +5,7 @@
  * - 管理UI向け: 管理者パスワード + HMAC 署名付き Cookie セッション
  */
 
-/**
- * 管理UI の認証に要るもの。
- *
- * もとは Worker の Env（シークレット）から来ていた。
- */
+/** 管理UI の認証に要るもの。 */
 export interface AdminSecrets {
   /** 空なら管理画面に鍵をかけない（下の `isLocked` を参照）。 */
   adminPassword: string;
@@ -66,9 +62,8 @@ export function timingSafeEqual(a: string, b: string): boolean {
 /*
  * 家族共通の合鍵（SHARED_ACCESS_TOKEN）による認証はここには無い。
  *
- * Worker を挟んでいた頃は、デバイスが外のサーバーを叩くための合鍵が
- * 要った。いまは画面もこのサーバーが配っていて、127.0.0.1 でしか
- * 待ち受けないので、届く時点で「この機械の上のブラウザ」だと分かる。
+ * 画面もこのサーバーが配っていて、127.0.0.1 でしか待ち受けないので、
+ * 届く時点で「この機械の上のブラウザ」だと分かる。
  *
  * **裏を返すと、LAN に開くと無認証の API になる。** config.ts の
  * bindWarning がそれを警告する。

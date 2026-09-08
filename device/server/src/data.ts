@@ -1,10 +1,8 @@
 /**
  * `data/` への読み書き。
  *
- * 設定・モデル一覧・チャット履歴が同じ作法で書かれるようにここへ集めた。
- * 以前は store.ts と ai/gemini-models.ts で同じ処理を書き分けており、
- * **権限の指定が片方だけ抜けていた**（config.json は 0600、
- * gemini-models.json は 0644）。集約でそれも揃う。
+ * 設定・モデル一覧・チャット履歴が同じ作法で書かれるようにここへ集めてある。
+ * **書き方を散らさないこと。** 散らすと権限（0600）の指定を落とす。
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
