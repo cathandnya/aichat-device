@@ -45,7 +45,10 @@ demo/*.wav
 # 一覧は gen.sh が台本から吐く生成物。追跡しない。
 demo/commands.json
 
-echo
+# --- Echo Spot の改造に使うもの ---
+# ROM・exploit・ドライバの置き場所（docs/09）。**配布物なので追跡しない。**
+# 500MB を超えるものもある。入手先は docs/09 の「参考」にある。
+echo/
 
 # 実機を追うときの出力先。追跡しない。
 device/server/server.log
