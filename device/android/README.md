@@ -83,7 +83,7 @@ lsof -iTCP:9801 -P | grep ESTABLISHED
 ## 立ち絵を入れる
 
 `app/src/main/assets/character/` に置く。**git には入れない**
-（素材の配布元の規約を確かめていない。[web/public/character/README.md](../web/public/character/README.md)
+（[web/public/character/README.md](../web/public/character/README.md)
 と同じ方針で `.gitignore` 済み）。
 
 **`drawable` ではなく `assets`。** `drawable` に置くと `R.drawable.*` が
@@ -114,8 +114,7 @@ lsof -iTCP:9801 -P | grep ESTABLISHED
 
 ## 起動音を入れる
 
-`app/src/main/assets/wake.mp3`。**git には入れない**（立ち絵と同じで、
-配布元の規約を確かめていない）。
+`app/src/main/assets/wake.mp3`。**git には入れない**（立ち絵と同じ）。
 
 **`res/raw` ではなく `assets`。** `R.raw.*` はコンパイル時に要るので、
 音が無いとビルドごと通らない。**無ければ鳴らないだけ**で会話は動く。

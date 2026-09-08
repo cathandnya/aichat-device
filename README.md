@@ -222,8 +222,7 @@ VOICEVOX は Docker でなく[公式アプリ](https://voicevox.hiroshiba.jp/)�
 | [VOICEVOX](https://voicevox.hiroshiba.jp/)（読み上げ） | 呼ぶだけで同梱していない。**音声の利用規約は各話者のものに従う** |
 | [ohr](https://github.com/Arthur-Ficial/ohr) / [whisper.cpp](https://github.com/ggerganov/whisper.cpp)（音声認識） | 呼ぶだけで同梱していない |
 
-**立ち絵と効果音は入っていない。** 配布元の規約を確かめていないため
-`.gitignore` してある（[置き方](device/web/public/character/README.md)）。
+**立ち絵と効果音は入っていない**（[置き方](device/web/public/character/README.md)）。
 無くても会話は動く。
 
 [docs/09](docs/09-echo-spot-jailbreak.md) は Amazon の端末を改造する手順で、

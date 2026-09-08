@@ -31,6 +31,6 @@
 
 ## リポジトリに入れるとき
 
-**入れる前に配布元の利用規約を確かめること。** 公開リポジトリなので、
-画像を commit すると再配布にあたる。規約が許していることを確認できたら
-`.gitignore` の `device/web/public/character/*.png` を外す。
+公開リポジトリなので、**画像を commit すると再配布にあたる。**
+入れてよいと判断できたら `.gitignore` の
+`device/web/public/character/*.png` を外す。

@@ -33,7 +33,7 @@ device/android/zundamon/
 .DS_Store
 
 # --- 立ち絵・音 ---
-# ずんだもんの素材。**配布元の規約（再配布の可否）を確かめていないので追跡しない。**
+# ずんだもんの素材。追跡しない。
 # 置き方は device/web/public/character/README.md
 device/web/public/character/*.png
 # ウェイクワードに気づいたときの音。同じ理由で追跡しない。

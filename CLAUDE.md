@@ -90,7 +90,7 @@ lsof -iTCP:9801 -P | grep ESTABLISHED     # LISTEN だけなら繋がってい�
 
 ## 素材（立ち絵・音）
 
-**git に入っていない。** 配布元の規約を確かめていないため（`.gitignore`）。
+**git に入っていない**（`.gitignore`）。
 元ファイルは `device/android/zundamon/`、置き場所は
 `app/src/main/assets/character/`。**追加したら assets にコピーが要る。**
 
