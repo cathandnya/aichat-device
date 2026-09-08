@@ -48,7 +48,7 @@ android {
 
 dependencies {
     // **依存はこれだけ。** androidx も Compose も入れない。
-    // 画面は View を数個組むだけで、増やすほど据え置きの機械では負債になる。
+    // 画面は View を1枚に描くだけで、増やすほど据え置きの機械では負債になる。
     // **5.x にしない。** 5.x は okhttp-android を引き込み、compileSdk 37 を
     // 要求してくる。Android 11 に載せる据え置きの機械に、プレビュー SDK は要らない。
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

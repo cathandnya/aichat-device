@@ -6,7 +6,6 @@
  * **先読みの仕掛けは要らない。** サーバー側の `speech/queue.ts` が
  * 「合成は並列・送出は直列」を済ませており、届く順＝読み上げる順が
  * 保証されている。こちらは受け取って復号して順に鳴らすだけ。
- * （`speaker.ts` の `RemoteSpeaker` は自分で /api/tts を叩く経路のもの）
  */
 
 export class AudioPlayer {

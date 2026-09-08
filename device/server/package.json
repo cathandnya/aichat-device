@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "start": "node src/main.ts",
     "dev": "node --watch src/main.ts",

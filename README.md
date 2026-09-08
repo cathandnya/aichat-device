@@ -74,6 +74,10 @@ SpeechAnalyzer で、実測で一番速く（0.14秒）正確で、音声も家�
 
 ## 動かす
 
+**要るもの**: macOS（既定の音声認識が macOS でしか動かない）と
+**Node 22.6 以上**。`npm start` は `.ts` をそのまま実行するので、
+型ストリッピングが要る（22.6 未満だと構文エラーで止まる）。
+
 ```bash
 # 読み上げ。Apple Silicon なら arm64 のイメージ（Intel Mac は cpu-amd64-latest）。
 docker run --rm -p 50021:50021 voicevox/voicevox_engine:cpu-arm64-latest
@@ -120,7 +124,7 @@ cd ../server && npm start          # → http://127.0.0.1:9801
 | `stub`（既定） | AI を呼ばず固定の応答を返す。UI と音声の検証用 | なし |
 | `live` | 本物の AI を呼ぶ | **あり** |
 
-`stub` には `?scenario=long|slow|error|empty|truncated` という口もあるが、
+`stub` には `?scenario=long|slow|error|empty|truncated|emotion` という口もあるが、
 **いまは `POST /api/chat` を直に叩いたときだけ効く。** 画面が使う `/ws` の経路は
 常に `normal` を返すので、**エラー側の見え方は画面では確かめられない。**
 

@@ -5,7 +5,7 @@
 ```
 [端末]  Echo Spot（device/android）。確認用に Mac のブラウザ（device/web）
   getUserMedia ─▶ AudioWorklet(80ms) ─▶ WebSocket /ws にそのまま流す
-      ◀── JSON     {state, question, answer, sources} ─▶ 画面に描く
+      ◀── JSON     {state, question, answer, sources} ─▶ 状態を出す
       ◀── バイナリ  読み上げの WAV                    ─▶ WebAudio で鳴らす
       ▼
 [ローカルサーバー]  device/server   Node + Hono   ★ 判断はすべてここ
@@ -17,8 +17,9 @@
   Claude / Gemini   ohr = macOS の音声認識（既定）   VOICEVOX（読み上げ）
 ```
 
-**判断も推論もサーバーに集める。** 端末は「マイクを送る・音を鳴らす・文字を描く」
+**判断も推論もサーバーに集める。** 端末は「マイクを送る・音を鳴らす・顔を出す」
 だけで、機械学習を載せない（[06](06-device-implementation.md)）。
+**実機は文字を出さない**（丸い画面で読めない）。文字が要るのは確認用の画面だけ。
 サーバーは **Mac に置く**（既定の音声認識が macOS でしか動かないため）。
 
 **AI の鍵はサーバーにだけ置く。**
