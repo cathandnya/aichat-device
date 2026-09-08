@@ -1,5 +1,7 @@
 # aichat-device
 
+[![YouTube](https://github.com/user-attachments/assets/db916435-0c07-442c-8a4f-7c4a15976d66)](https://youtu.be/3ew4TTjtNao)
+
 家に置いて話しかけると答える、Echo Show 風の据え置きデバイス。
 
 **判断も推論もローカルサーバーに集める。デバイスは端末に徹する。**
