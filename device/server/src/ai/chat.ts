@@ -305,7 +305,7 @@ export async function handleChat(
 
   const config = readConfig();
   // 端末内モデルという選択肢が無いので、設定された経路をそのまま使う
-  // （本家 AIChat にあった 409 providerMismatch の分岐はここには無い）。
+  // （経路の食い違いを 409 で返すような分岐は要らない）。
   const cloud = config.provider;
   const model = modelFor(config, cloud);
 

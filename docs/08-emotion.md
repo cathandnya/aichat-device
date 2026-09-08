@@ -148,7 +148,7 @@ swiftc -O -parse-as-library emotion.swift -o emotion       通る
 
 ### 何を課金ゼロで確かめられるか ★
 
-`../aichat/CLAUDE.md` と同じく、**本物の AI を呼んで動作確認はしない。**
+[CLAUDE.md](../CLAUDE.md) のとおり、**本物の AI を呼んで動作確認はしない。**
 確かめられる範囲を分けておく。
 
 | | 課金 | 確かめ方 |

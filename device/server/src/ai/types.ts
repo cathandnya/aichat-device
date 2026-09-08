@@ -31,8 +31,8 @@ export interface Runtime {
 /**
  * 使う AI。管理UIからのみ変更できる。
  *
- * 本家 AIChat には `automatic` / `onDevice`（端末内の Apple Foundation Models）
- * があるが、こちらでは削ってある。**AI を呼ぶのはサーバーだけ**で、話しかける
+ * `automatic` / `onDevice`（端末内の Apple Foundation Models）は
+ * 置いていない。**AI を呼ぶのはサーバーだけ**で、話しかける
  * 端末には何も載らないため、「端末内モデル」という概念が成立しない。選択肢を
  * 残すと「端末内のみ」に設定した瞬間にデバイスが黙って答えなくなる。
  *
